@@ -14,16 +14,17 @@ import (
 	"github.com/gocolly/colly/v2"
 	"golang.org/x/net/html"
 
-	"github.com/javtube/javtube-sdk-go/common/number"
-	"github.com/javtube/javtube-sdk-go/common/parser"
-	"github.com/javtube/javtube-sdk-go/model"
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/internal/scraper"
+	"github.com/metatube-community/metatube-sdk-go/common/number"
+	"github.com/metatube-community/metatube-sdk-go/common/parser"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/scraper"
 )
 
 var (
 	_ provider.MovieProvider = (*MGS)(nil)
 	_ provider.MovieSearcher = (*MGS)(nil)
+	_ provider.MovieReviewer = (*MGS)(nil)
 )
 
 const (
@@ -51,7 +52,49 @@ func New() *MGS {
 	}
 }
 
-func (mgs *MGS) NormalizeID(id string) string {
+func (mgs *MGS) GetMovieReviewsByID(id string) (reviews []*model.MovieReviewDetail, err error) {
+	c := mgs.ClonedCollector()
+
+	c.OnXML(`//*[@id="user_review"]/ul/li`, func(e *colly.XMLElement) {
+		name := strings.TrimSpace(regexp.MustCompile(`(さん)?(のレビュー)?`).ReplaceAllString(
+			e.ChildText(`.//div[@class="user_date"]/p[@class="name"]`), ""))
+		comment := strings.TrimSpace(e.ChildText(`.//p[@class="text"]`))
+		if name == "" || comment == "" {
+			return
+		}
+
+		score := 0.0
+		stars := strings.Split(strings.TrimSpace(e.ChildAttr(`.//div[@class="user_date"]/p[@class="review"]/span`, "class")), "_")
+		if len(stars) > 0 {
+			score = parser.ParseScore(stars[len(stars)-1]) / 10
+			if score > 5.0 {
+				score = 0 // reset, must be an error
+			}
+		}
+
+		reviews = append(reviews, &model.MovieReviewDetail{
+			Author:  name,
+			Comment: comment,
+			Score:   score,
+			Title:   strings.TrimSpace(e.ChildText(`.//h4`)),
+			Date: parser.ParseDate(strings.ReplaceAll(
+				e.ChildText(`.//p[@class="date"]`), "投稿日：", "")),
+		})
+	})
+
+	err = c.Visit(fmt.Sprintf(movieURL, id))
+	return
+}
+
+func (mgs *MGS) GetMovieReviewsByURL(rawURL string) (reviews []*model.MovieReviewDetail, err error) {
+	id, err := mgs.ParseMovieIDFromURL(rawURL)
+	if err != nil {
+		return
+	}
+	return mgs.GetMovieReviewsByID(id)
+}
+
+func (mgs *MGS) NormalizeMovieID(id string) string {
 	return strings.ToUpper(id)
 }
 
@@ -59,16 +102,16 @@ func (mgs *MGS) GetMovieInfoByID(id string) (info *model.MovieInfo, err error) {
 	return mgs.GetMovieInfoByURL(fmt.Sprintf(movieURL, id))
 }
 
-func (mgs *MGS) ParseIDFromURL(rawURL string) (string, error) {
+func (mgs *MGS) ParseMovieIDFromURL(rawURL string) (string, error) {
 	homepage, err := url.Parse(rawURL)
 	if err != nil {
 		return "", err
 	}
-	return mgs.NormalizeID(path.Base(homepage.Path)), nil
+	return mgs.NormalizeMovieID(path.Base(homepage.Path)), nil
 }
 
 func (mgs *MGS) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err error) {
-	id, err := mgs.ParseIDFromURL(rawURL)
+	id, err := mgs.ParseMovieIDFromURL(rawURL)
 	if err != nil {
 		return
 	}
@@ -159,7 +202,7 @@ func (mgs *MGS) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err err
 	return
 }
 
-func (mgs *MGS) NormalizeKeyword(keyword string) string {
+func (mgs *MGS) NormalizeMovieKeyword(keyword string) string {
 	if number.IsSpecial(keyword) {
 		return ""
 	}
@@ -171,7 +214,7 @@ func (mgs *MGS) SearchMovie(keyword string) (results []*model.MovieSearchResult,
 
 	c.OnXML(`//*[@id="center_column"]/div[2]/div/ul/li`, func(e *colly.XMLElement) {
 		homepage := e.Request.AbsoluteURL(e.ChildAttr(`.//h5/a`, "href"))
-		id, _ := mgs.ParseIDFromURL(homepage)
+		id, _ := mgs.ParseMovieIDFromURL(homepage)
 		results = append(results, &model.MovieSearchResult{
 			ID:       id,
 			Number:   id, /* same as ID */
@@ -199,5 +242,5 @@ func imageSrc(s string, thumb bool) string {
 }
 
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

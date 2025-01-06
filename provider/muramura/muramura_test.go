@@ -1,15 +1,13 @@
 package muramura
 
 import (
-	"encoding/json"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/testkit"
 )
 
-func TestMuraMura_NormalizeID(t *testing.T) {
-	provider := New()
-	for _, item := range []string{
+func TestMuraMura_GetMovieInfoByID(t *testing.T) {
+	testkit.Test(t, New, []string{
 		"091522_959",
 		"062509_011",
 		"021110_163",
@@ -17,10 +15,11 @@ func TestMuraMura_NormalizeID(t *testing.T) {
 		"012810_155",
 		"081222_953",
 		"062509_003",
-	} {
-		info, err := provider.GetMovieInfoByID(item)
-		data, _ := json.MarshalIndent(info, "", "\t")
-		assert.True(t, assert.NoError(t, err) && assert.True(t, info.Valid()))
-		t.Logf("%s", data)
-	}
+	})
+}
+
+func TestMuraMura_GetMovieReviewsByID(t *testing.T) {
+	testkit.Test(t, New, []string{
+		//"091522_959",
+	})
 }

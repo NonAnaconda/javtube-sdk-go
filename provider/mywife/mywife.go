@@ -9,9 +9,9 @@ import (
 
 	"github.com/gocolly/colly/v2"
 
-	"github.com/javtube/javtube-sdk-go/model"
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/internal/scraper"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/scraper"
 )
 
 var _ provider.MovieProvider = (*MyWife)(nil)
@@ -34,7 +34,7 @@ func New() *MyWife {
 	return &MyWife{scraper.NewDefaultScraper(Name, baseURL, Priority)}
 }
 
-func (mw *MyWife) NormalizeID(id string) string {
+func (mw *MyWife) NormalizeMovieID(id string) string {
 	if ss := regexp.MustCompile(`^(?i)(?:mywife[-_])?(\d+)$`).FindStringSubmatch(id); len(ss) == 2 {
 		return ss[1]
 	}
@@ -45,7 +45,7 @@ func (mw *MyWife) GetMovieInfoByID(id string) (info *model.MovieInfo, err error)
 	return mw.GetMovieInfoByURL(fmt.Sprintf(movieURL, id))
 }
 
-func (mw *MyWife) ParseIDFromURL(rawURL string) (string, error) {
+func (mw *MyWife) ParseMovieIDFromURL(rawURL string) (string, error) {
 	homepage, err := url.Parse(rawURL)
 	if err != nil {
 		return "", err
@@ -54,7 +54,7 @@ func (mw *MyWife) ParseIDFromURL(rawURL string) (string, error) {
 }
 
 func (mw *MyWife) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err error) {
-	id, err := mw.ParseIDFromURL(rawURL)
+	id, err := mw.ParseMovieIDFromURL(rawURL)
 	if err != nil {
 		return
 	}
@@ -128,5 +128,5 @@ func (mw *MyWife) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err e
 }
 
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

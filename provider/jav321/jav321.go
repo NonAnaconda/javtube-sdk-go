@@ -7,15 +7,16 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/gocolly/colly/v2"
 	"golang.org/x/net/html"
 
-	"github.com/javtube/javtube-sdk-go/common/number"
-	"github.com/javtube/javtube-sdk-go/common/parser"
-	"github.com/javtube/javtube-sdk-go/model"
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/internal/scraper"
+	"github.com/metatube-community/metatube-sdk-go/common/number"
+	"github.com/metatube-community/metatube-sdk-go/common/parser"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/scraper"
 )
 
 var (
@@ -42,11 +43,15 @@ func New() *JAV321 {
 	return &JAV321{scraper.NewDefaultScraper(Name, baseURL, Priority)}
 }
 
+func (jav *JAV321) SetRequestTimeout(_ time.Duration) {
+	jav.Scraper.SetRequestTimeout(10 * time.Second)
+}
+
 func (jav *JAV321) GetMovieInfoByID(id string) (info *model.MovieInfo, err error) {
 	return jav.GetMovieInfoByURL(fmt.Sprintf(movieURL, id))
 }
 
-func (jav *JAV321) ParseIDFromURL(rawURL string) (string, error) {
+func (jav *JAV321) ParseMovieIDFromURL(rawURL string) (string, error) {
 	homepage, err := url.Parse(rawURL)
 	if err != nil {
 		return "", err
@@ -55,7 +60,7 @@ func (jav *JAV321) ParseIDFromURL(rawURL string) (string, error) {
 }
 
 func (jav *JAV321) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err error) {
-	id, err := jav.ParseIDFromURL(rawURL)
+	id, err := jav.ParseMovieIDFromURL(rawURL)
 	if err != nil {
 		return
 	}
@@ -206,7 +211,7 @@ func (jav *JAV321) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err 
 	return
 }
 
-func (jav *JAV321) NormalizeKeyword(keyword string) string {
+func (jav *JAV321) NormalizeMovieKeyword(keyword string) string {
 	if number.IsSpecial(keyword) && !regexp.MustCompile(`^(?i)([a-z]{1,4}\d{2,4}|heyzo[-_].+)$`).MatchString(keyword) {
 		return "" // JavBus has no those special contents.
 	}
@@ -244,5 +249,5 @@ func (jav *JAV321) SearchMovie(keyword string) (results []*model.MovieSearchResu
 }
 
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

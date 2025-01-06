@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/url"
 	"path"
 	"regexp"
@@ -11,14 +12,18 @@ import (
 
 	"github.com/gocolly/colly/v2"
 
-	"github.com/javtube/javtube-sdk-go/common/m3u8"
-	"github.com/javtube/javtube-sdk-go/common/parser"
-	"github.com/javtube/javtube-sdk-go/model"
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/internal/scraper"
+	"github.com/metatube-community/metatube-sdk-go/common/js"
+	"github.com/metatube-community/metatube-sdk-go/common/m3u8"
+	"github.com/metatube-community/metatube-sdk-go/common/parser"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/scraper"
 )
 
-var _ provider.MovieProvider = (*Heyzo)(nil)
+var (
+	_ provider.MovieProvider = (*Heyzo)(nil)
+	_ provider.MovieReviewer = (*Heyzo)(nil)
+)
 
 const (
 	Name     = "HEYZO"
@@ -26,9 +31,11 @@ const (
 )
 
 const (
-	baseURL   = "https://www.heyzo.com/"
-	movieURL  = "https://www.heyzo.com/moviepages/%04s/index.html"
-	sampleURL = "https://www.heyzo.com/contents/%s/%s/%s"
+	baseURL          = "https://www.heyzo.com/"
+	movieURL         = "https://www.heyzo.com/moviepages/%04s/index.html"
+	sampleURL        = "https://www.heyzo.com/contents/%s/%s/%s"
+	reviewPageURL    = "https://www.heyzo.com/app_v2/review_getjs/?id=%s&page=%d&r=%f&lang=%s"
+	reviewShowAllURL = "https://www.heyzo.com/app_v2/review_getjs/?id=%s&showall=1&r=%f&lang=%s"
 )
 
 type Heyzo struct {
@@ -39,7 +46,84 @@ func New() *Heyzo {
 	return &Heyzo{scraper.NewDefaultScraper(Name, baseURL, Priority)}
 }
 
-func (hzo *Heyzo) NormalizeID(id string) string {
+func (hzo *Heyzo) GetMovieReviewsByID(id string) (reviews []*model.MovieReviewDetail, err error) {
+	c := hzo.ClonedCollector()
+
+	c.OnXML(`//script`, func(e *colly.XMLElement) {
+		if !strings.Contains(e.Text, "reviews_get") {
+			return
+		}
+
+		obj := struct {
+			MovieSeq     string `json:"movie_seq"`
+			Page         int    `json:"page"`
+			Lang         string `json:"lang"`
+			ProviderName string `json:"provider_name"`
+		}{}
+		if err = js.UnmarshalObject(e.Text, "object", &obj); err != nil {
+			return
+		}
+		if obj.MovieSeq == "" {
+			err = fmt.Errorf("no movie seq found on `%s`", e.Text)
+			return
+		}
+
+		// Get reviews
+		d := c.Clone()
+
+		d.OnResponse(func(r *colly.Response) {
+			data := struct {
+				Comments []struct {
+					Username string `json:"user_name"`
+					Date     string `json:"date"`
+					Comment  string `json:"comment"`
+					Eng      string `json:"eng"`
+					Score    struct {
+						Overall string `json:"overall"`
+					} `json:"score"`
+				} `json:"comments"`
+			}{}
+			if err = js.UnmarshalObject(r.Body, "reviews", &data); err == nil {
+				for _, row := range data.Comments {
+					if row.Username == "" || row.Comment == "" {
+						continue
+					}
+					reviews = append(reviews, &model.MovieReviewDetail{
+						Author:  row.Username,
+						Comment: row.Comment,
+						Score:   parser.ParseScore(row.Score.Overall),
+						Date:    parser.ParseDate(row.Date),
+					})
+				}
+			}
+		})
+
+		var reviewURL string
+		if obj.Page > 0 {
+			reviewURL = fmt.Sprintf(reviewPageURL, obj.MovieSeq, obj.Page, rand.Float64(), obj.Lang)
+		} else {
+			reviewURL = fmt.Sprintf(reviewShowAllURL, obj.MovieSeq, rand.Float64(), obj.Lang)
+		}
+		if vErr := d.Visit(reviewURL); vErr != nil {
+			err = vErr
+		}
+	})
+
+	if vErr := c.Visit(fmt.Sprintf(movieURL, id)); vErr != nil {
+		err = vErr
+	}
+	return
+}
+
+func (hzo *Heyzo) GetMovieReviewsByURL(rawURL string) (reviews []*model.MovieReviewDetail, err error) {
+	id, err := hzo.ParseMovieIDFromURL(rawURL)
+	if err != nil {
+		return
+	}
+	return hzo.GetMovieReviewsByID(id)
+}
+
+func (hzo *Heyzo) NormalizeMovieID(id string) string {
 	if ss := regexp.MustCompile(`^(?i)(?:heyzo[-_])?(\d+)$`).FindStringSubmatch(id); len(ss) == 2 {
 		return ss[1]
 	}
@@ -50,7 +134,7 @@ func (hzo *Heyzo) GetMovieInfoByID(id string) (info *model.MovieInfo, err error)
 	return hzo.GetMovieInfoByURL(fmt.Sprintf(movieURL, id))
 }
 
-func (hzo *Heyzo) ParseIDFromURL(rawURL string) (string, error) {
+func (hzo *Heyzo) ParseMovieIDFromURL(rawURL string) (string, error) {
 	homepage, err := url.Parse(rawURL)
 	if err != nil {
 		return "", err
@@ -59,7 +143,7 @@ func (hzo *Heyzo) ParseIDFromURL(rawURL string) (string, error) {
 }
 
 func (hzo *Heyzo) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err error) {
-	id, err := hzo.ParseIDFromURL(rawURL)
+	id, err := hzo.ParseMovieIDFromURL(rawURL)
 	if err != nil {
 		return
 	}
@@ -221,5 +305,5 @@ func (hzo *Heyzo) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err e
 }
 
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

@@ -3,17 +3,17 @@ package route
 import (
 	"bytes"
 	"image"
-	"image/jpeg"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/render"
 
-	R "github.com/javtube/javtube-sdk-go/constant"
-	"github.com/javtube/javtube-sdk-go/engine"
-	"github.com/javtube/javtube-sdk-go/imageutil/badge"
-	javtube "github.com/javtube/javtube-sdk-go/provider"
+	R "github.com/metatube-community/metatube-sdk-go/constant"
+	"github.com/metatube-community/metatube-sdk-go/engine"
+	"github.com/metatube-community/metatube-sdk-go/imageutil"
+	"github.com/metatube-community/metatube-sdk-go/imageutil/badge"
+	mt "github.com/metatube-community/metatube-sdk-go/provider"
 )
 
 type imageType uint8
@@ -73,7 +73,7 @@ func getImage(app *engine.Engine, typ imageType) gin.HandlerFunc {
 		case app.IsMovieProvider(uri.Provider):
 			isActorProvider = false
 		default:
-			abortWithError(c, javtube.ErrProviderNotFound)
+			abortWithError(c, mt.ErrProviderNotFound)
 			return
 		}
 
@@ -82,14 +82,14 @@ func getImage(app *engine.Engine, typ imageType) gin.HandlerFunc {
 			err error
 		)
 		if query.URL != "" /* specified URL */ {
-			var provider javtube.Provider
+			var provider mt.Provider
 			if isActorProvider {
 				provider = app.MustGetActorProviderByName(uri.Provider)
 			} else {
 				provider = app.MustGetMovieProviderByName(uri.Provider)
 			}
-			// query.Ratio should apply only to the movie primary images.
-			if typ != primaryImageType || isActorProvider || query.Ratio < 0 {
+			// query.Ratio should apply only to the primary images.
+			if typ != primaryImageType || query.Ratio < 0 {
 				query.Ratio = ratio
 			}
 			img, err = app.GetImageByURL(provider, query.URL, query.Ratio, query.Position, query.Auto)
@@ -123,11 +123,11 @@ func getImage(app *engine.Engine, typ imageType) gin.HandlerFunc {
 			}
 		}
 
-		c.Header("X-JavTube-Image-Width", strconv.Itoa(img.Bounds().Dx()))
-		c.Header("X-JavTube-Image-Height", strconv.Itoa(img.Bounds().Dy()))
+		c.Header("X-MetaTube-Image-Width", strconv.Itoa(img.Bounds().Dx()))
+		c.Header("X-MetaTube-Image-Height", strconv.Itoa(img.Bounds().Dy()))
 
 		buf := &bytes.Buffer{}
-		if err = jpeg.Encode(buf, img, &jpeg.Options{Quality: query.Quality}); err != nil {
+		if err = imageutil.EncodeToJPEG(buf, img, query.Quality); err != nil {
 			panic(err)
 		}
 
@@ -135,10 +135,6 @@ func getImage(app *engine.Engine, typ imageType) gin.HandlerFunc {
 			ContentType:   jpegImageMIMEType,
 			ContentLength: int64(buf.Len()),
 			Reader:        buf,
-			Headers: map[string]string{
-				// should be cached for a week.
-				"Cache-Control": "max-age=604800, public",
-			},
 		})
 	}
 }

@@ -7,15 +7,17 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/antchfx/htmlquery"
 	"github.com/gocolly/colly/v2"
 	"golang.org/x/net/html"
+	dt "gorm.io/datatypes"
 
-	"github.com/javtube/javtube-sdk-go/common/parser"
-	"github.com/javtube/javtube-sdk-go/model"
-	"github.com/javtube/javtube-sdk-go/provider/internal/scraper"
+	"github.com/metatube-community/metatube-sdk-go/common/parser"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/scraper"
 )
 
 type Core struct {
@@ -26,7 +28,7 @@ type Core struct {
 	MovieURL string
 
 	// Values
-	DefaultPriority int
+	DefaultPriority float64
 	DefaultName     string
 	DefaultMaker    string
 }
@@ -44,7 +46,7 @@ func (core *Core) GetMovieInfoByID(id string) (info *model.MovieInfo, err error)
 	return core.GetMovieInfoByURL(fmt.Sprintf(core.MovieURL, id))
 }
 
-func (core *Core) ParseIDFromURL(rawURL string) (string, error) {
+func (core *Core) ParseMovieIDFromURL(rawURL string) (string, error) {
 	homepage, err := url.Parse(rawURL)
 	if err != nil {
 		return "", err
@@ -52,8 +54,57 @@ func (core *Core) ParseIDFromURL(rawURL string) (string, error) {
 	return path.Base(path.Dir(homepage.Path)), nil
 }
 
+func (core *Core) GetMovieReviewsByURL(rawURL string) (reviews []*model.MovieReviewDetail, err error) {
+	id, err := core.ParseMovieIDFromURL(rawURL)
+	if err != nil {
+		return
+	}
+	return core.GetMovieReviewsByID(id)
+}
+
+func (core *Core) GetMovieReviewsByID(id string) (reviews []*model.MovieReviewDetail, err error) {
+	c := core.ClonedCollector()
+
+	parseReviews := func(e *colly.XMLElement) {
+		comment := strings.TrimSpace(e.ChildText(`.//div[@class="review-comment"]`))
+		reviewer := strings.TrimSpace(e.ChildText(`.//div[@class="review-info"]/span[@class="review-info__user"]`))
+		reviewer = strings.TrimSpace(strings.TrimPrefix(reviewer, "by "))
+
+		if comment == "" || reviewer == "" {
+			return
+		}
+		reviews = append(reviews, &model.MovieReviewDetail{
+			Author:  reviewer,
+			Comment: comment,
+			Score: float64(utf8.RuneCountInString(
+				strings.TrimSpace(e.ChildText(`.//div[@class="rating"]`)))),
+			Date: parser.ParseDate(
+				strings.TrimSpace(e.ChildText(`.//div[@class="review-info"]/span[@class="review-info__date"]`))),
+		})
+	}
+
+	isCaribbeancom := false
+
+	// Caribbeancom
+	c.OnXML(`//div[@class="movie-review section"]/div[@class="section is-dense"]`, func(e *colly.XMLElement) {
+		parseReviews(e)
+		isCaribbeancom = len(reviews) > 0
+	})
+
+	// CaribbeancomPremium
+	c.OnXML(`//div[@class="movie-review"]//div[@class="section"]`, func(e *colly.XMLElement) {
+		if isCaribbeancom {
+			return
+		}
+		parseReviews(e)
+	})
+
+	err = c.Visit(fmt.Sprintf(core.MovieURL, id))
+	return
+}
+
 func (core *Core) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err error) {
-	id, err := core.ParseIDFromURL(rawURL)
+	id, err := core.ParseMovieIDFromURL(rawURL)
 	if err != nil {
 		return
 	}
@@ -156,6 +207,17 @@ func (core *Core) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err e
 	c.OnXML(`//div[@class="gallery-ratio"]/a`, func(e *colly.XMLElement) {
 		if href := e.Attr("href"); !strings.Contains(href, "member") {
 			info.PreviewImages = append(info.PreviewImages, e.Request.AbsoluteURL(href))
+		}
+	})
+
+	c.OnScraped(func(_ *colly.Response) {
+		// Fallback to parse ID datetime.
+		if time.Time(info.ReleaseDate).IsZero() {
+			if ss := regexp.MustCompile(`(\d{6})[-_]\d+`).
+				FindStringSubmatch(info.ID); len(ss) > 1 {
+				date, _ := time.Parse(`010206`, ss[1])
+				info.ReleaseDate = dt.Date(date)
+			}
 		}
 	})
 

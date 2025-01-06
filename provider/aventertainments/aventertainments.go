@@ -10,11 +10,11 @@ import (
 	"github.com/gocolly/colly/v2"
 	"golang.org/x/net/html"
 
-	"github.com/javtube/javtube-sdk-go/common/number"
-	"github.com/javtube/javtube-sdk-go/common/parser"
-	"github.com/javtube/javtube-sdk-go/model"
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/internal/scraper"
+	"github.com/metatube-community/metatube-sdk-go/common/number"
+	"github.com/metatube-community/metatube-sdk-go/common/parser"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/scraper"
 )
 
 var (
@@ -45,7 +45,7 @@ func (ave *AVE) GetMovieInfoByID(id string) (info *model.MovieInfo, err error) {
 	return ave.GetMovieInfoByURL(fmt.Sprintf(movieURL, url.QueryEscape(id)))
 }
 
-func (ave *AVE) ParseIDFromURL(rawURL string) (string, error) {
+func (ave *AVE) ParseMovieIDFromURL(rawURL string) (string, error) {
 	homepage, err := url.Parse(rawURL)
 	if err != nil {
 		return "", err
@@ -62,7 +62,7 @@ func (ave *AVE) ParseIDFromURL(rawURL string) (string, error) {
 }
 
 func (ave *AVE) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err error) {
-	id, err := ave.ParseIDFromURL(rawURL)
+	id, err := ave.ParseMovieIDFromURL(rawURL)
 	if err != nil {
 		return
 	}
@@ -160,7 +160,7 @@ func (ave *AVE) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err err
 	return
 }
 
-func (ave *AVE) NormalizeKeyword(keyword string) string {
+func (ave *AVE) NormalizeMovieKeyword(keyword string) string {
 	if number.IsSpecial(keyword) {
 		return ""
 	}
@@ -173,7 +173,7 @@ func (ave *AVE) SearchMovie(keyword string) (results []*model.MovieSearchResult,
 	c.OnXML(`//div[@class="single-slider-product grid-view-product"]`, func(e *colly.XMLElement) {
 		href := e.ChildAttr(`.//div[1]/a`, "href")
 		thumb := e.ChildAttr(`.//div[1]/a/img`, "src")
-		id, _ := ave.ParseIDFromURL(e.Request.AbsoluteURL(href))
+		id, _ := ave.ParseMovieIDFromURL(e.Request.AbsoluteURL(href))
 		results = append(results, &model.MovieSearchResult{
 			ID:       id,
 			Number:   parserNumber(thumb),
@@ -210,5 +210,5 @@ func parseSummary(e *colly.XMLElement) string {
 }
 
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

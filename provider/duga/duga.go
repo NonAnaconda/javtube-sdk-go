@@ -11,11 +11,11 @@ import (
 
 	"github.com/gocolly/colly/v2"
 
-	"github.com/javtube/javtube-sdk-go/common/number"
-	"github.com/javtube/javtube-sdk-go/common/parser"
-	"github.com/javtube/javtube-sdk-go/model"
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/internal/scraper"
+	"github.com/metatube-community/metatube-sdk-go/common/number"
+	"github.com/metatube-community/metatube-sdk-go/common/parser"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/scraper"
 )
 
 var (
@@ -44,7 +44,7 @@ func New() *DUGA {
 	}
 }
 
-func (duga *DUGA) NormalizeID(id string) string {
+func (duga *DUGA) NormalizeMovieID(id string) string {
 	return strings.ToLower(id) // DUGA always use lowercase id.
 }
 
@@ -52,16 +52,16 @@ func (duga *DUGA) GetMovieInfoByID(id string) (info *model.MovieInfo, err error)
 	return duga.GetMovieInfoByURL(fmt.Sprintf(movieURL, id))
 }
 
-func (duga *DUGA) ParseIDFromURL(rawURL string) (string, error) {
+func (duga *DUGA) ParseMovieIDFromURL(rawURL string) (string, error) {
 	homepage, err := url.Parse(rawURL)
 	if err != nil {
 		return "", err
 	}
-	return duga.NormalizeID(path.Base(homepage.Path)), nil
+	return duga.NormalizeMovieID(path.Base(homepage.Path)), nil
 }
 
 func (duga *DUGA) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err error) {
-	id, err := duga.ParseIDFromURL(rawURL)
+	id, err := duga.ParseMovieIDFromURL(rawURL)
 	if err != nil {
 		return
 	}
@@ -213,7 +213,7 @@ func (duga *DUGA) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err e
 	return
 }
 
-func (duga *DUGA) NormalizeKeyword(keyword string) string {
+func (duga *DUGA) NormalizeMovieKeyword(keyword string) string {
 	if number.IsSpecial(keyword) {
 		return ""
 	}
@@ -225,7 +225,7 @@ func (duga *DUGA) SearchMovie(keyword string) (results []*model.MovieSearchResul
 
 	var ids []string
 	c.OnXML(`//*[@id="searchresultarea"]//div[@class="contentslist"]`, func(e *colly.XMLElement) {
-		id, _ := duga.ParseIDFromURL(e.Request.AbsoluteURL(e.ChildAttr(`.//a`, "href")))
+		id, _ := duga.ParseMovieIDFromURL(e.Request.AbsoluteURL(e.ChildAttr(`.//a`, "href")))
 		ids = append(ids, id)
 	})
 
@@ -254,5 +254,5 @@ func (duga *DUGA) SearchMovie(keyword string) (results []*model.MovieSearchResul
 }
 
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

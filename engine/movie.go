@@ -1,23 +1,26 @@
 package engine
 
 import (
+	"fmt"
+	"sort"
+	"strings"
 	"sync"
+	"time"
 
 	"gorm.io/gorm/clause"
 
-	"github.com/javtube/javtube-sdk-go/common/comparer"
-	"github.com/javtube/javtube-sdk-go/common/number"
-	"github.com/javtube/javtube-sdk-go/common/priority"
-	"github.com/javtube/javtube-sdk-go/engine/internal/utils"
-	"github.com/javtube/javtube-sdk-go/model"
-	javtube "github.com/javtube/javtube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/collections"
+	"github.com/metatube-community/metatube-sdk-go/common/comparer"
+	"github.com/metatube-community/metatube-sdk-go/common/number"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	mt "github.com/metatube-community/metatube-sdk-go/provider"
 )
 
-func (e *Engine) searchMovieFromDB(keyword string, provider javtube.MovieProvider, all bool) (results []*model.MovieSearchResult, err error) {
+func (e *Engine) searchMovieFromDB(keyword string, provider mt.MovieProvider, all bool) (results []*model.MovieSearchResult, err error) {
 	var infos []*model.MovieInfo
 	tx := e.db.
 		// Note: keyword might be an ID or just a regular number, so we should
-		// query both of them for best match. Also, case should not mater.
+		// query both of them for best match. Also, case should not matter.
 		Where("number = ? COLLATE NOCASE", keyword).
 		Or("id = ? COLLATE NOCASE", keyword)
 	if all {
@@ -40,11 +43,11 @@ func (e *Engine) searchMovieFromDB(keyword string, provider javtube.MovieProvide
 	return
 }
 
-func (e *Engine) searchMovie(keyword string, provider javtube.MovieProvider, fallback bool) (results []*model.MovieSearchResult, err error) {
+func (e *Engine) searchMovie(keyword string, provider mt.MovieProvider, fallback bool) (results []*model.MovieSearchResult, err error) {
 	// Regular keyword searching.
-	if searcher, ok := provider.(javtube.MovieSearcher); ok {
-		if keyword = searcher.NormalizeKeyword(keyword); keyword == "" {
-			return nil, javtube.ErrInvalidKeyword
+	if searcher, ok := provider.(mt.MovieSearcher); ok {
+		if keyword = searcher.NormalizeMovieKeyword(keyword); keyword == "" {
+			return nil, mt.ErrInvalidKeyword
 		}
 		if fallback {
 			defer func() {
@@ -54,10 +57,10 @@ func (e *Engine) searchMovie(keyword string, provider javtube.MovieProvider, fal
 					// overwrite error.
 					err = nil
 					// update results.
-					msr := utils.NewMovieSearchResultSet()
+					msr := collections.NewOrderedSet(func(v *model.MovieSearchResult) string { return v.Provider + v.ID })
 					msr.Add(results...)
 					msr.Add(innerResults...)
-					results = msr.Results()
+					results = msr.Slice()
 				}
 			}()
 		}
@@ -73,7 +76,7 @@ func (e *Engine) searchMovie(keyword string, provider javtube.MovieProvider, fal
 
 func (e *Engine) SearchMovie(keyword, name string, fallback bool) ([]*model.MovieSearchResult, error) {
 	if keyword = number.Trim(keyword); keyword == "" {
-		return nil, javtube.ErrInvalidKeyword
+		return nil, mt.ErrInvalidKeyword
 	}
 	provider, err := e.GetMovieProviderByName(name)
 	if err != nil {
@@ -84,21 +87,29 @@ func (e *Engine) SearchMovie(keyword, name string, fallback bool) ([]*model.Movi
 
 func (e *Engine) searchMovieAll(keyword string) (results []*model.MovieSearchResult, err error) {
 	type response struct {
-		Results []*model.MovieSearchResult
-		Error   error
+		Results   []*model.MovieSearchResult
+		Error     error
+		Provider  mt.MovieProvider
+		StartTime time.Time
+		EndTime   time.Time
 	}
 	respCh := make(chan response)
 
 	var wg sync.WaitGroup
 	for _, provider := range e.movieProviders {
 		wg.Add(1)
+		// Goroutine started time.
+		startTime := time.Now()
 		// Async searching.
-		go func(provider javtube.MovieProvider) {
+		go func(provider mt.MovieProvider) {
 			defer wg.Done()
 			innerResults, innerErr := e.searchMovie(keyword, provider, false)
 			respCh <- response{
-				Results: innerResults,
-				Error:   innerErr,
+				Results:   innerResults,
+				Error:     innerErr,
+				Provider:  provider,
+				StartTime: startTime,
+				EndTime:   time.Now(),
 			}
 		}(provider)
 	}
@@ -108,20 +119,34 @@ func (e *Engine) searchMovieAll(keyword string) (results []*model.MovieSearchRes
 		close(respCh)
 	}()
 
+	ds := make([]string, 0, len(e.movieProviders))
 	// response channel.
 	for resp := range respCh {
+		ds = append(ds, func(a, b, c any) string {
+			if c == nil {
+				c = "no error"
+			}
+			return fmt.Sprintf("%s(%s):<%v>", a, b, c)
+		}(
+			resp.Provider.Name(),
+			resp.EndTime.Sub(resp.StartTime),
+			resp.Error,
+		))
+
 		if resp.Error != nil {
 			continue
 		}
 		results = append(results, resp.Results...)
 	}
+
+	e.logger.Printf("Search keyword %s: %s", keyword, strings.Join(ds, " | "))
 	return
 }
 
 // SearchMovieAll searches the keyword from all providers.
 func (e *Engine) SearchMovieAll(keyword string, fallback bool) (results []*model.MovieSearchResult, err error) {
 	if keyword = number.Trim(keyword); keyword == "" {
-		return nil, javtube.ErrInvalidKeyword
+		return nil, mt.ErrInvalidKeyword
 	}
 
 	defer func() {
@@ -129,23 +154,29 @@ func (e *Engine) SearchMovieAll(keyword string, fallback bool) (results []*model
 			return
 		}
 		if len(results) == 0 {
-			err = javtube.ErrInfoNotFound
+			err = mt.ErrInfoNotFound
 			return
 		}
 		// remove duplicate results, if any.
-		msr := utils.NewMovieSearchResultSet()
+		msr := collections.NewOrderedSet(func(v *model.MovieSearchResult) string { return v.Provider + v.ID })
 		msr.Add(results...)
-		results = msr.Results()
+		results = msr.Slice()
 		// post-processing
-		ps := new(priority.Slice[float64, *model.MovieSearchResult])
+		ps := new(collections.WeightedSlice[float64, *model.MovieSearchResult])
 		for _, result := range results {
 			if !result.Valid() /* validation check */ {
 				continue
 			}
-			ps.Append(comparer.Compare(keyword, result.Number)*float64(e.MustGetMovieProviderByName(result.Provider).Priority()), result)
+			if _, err := e.GetMovieProviderByName(result.Provider); err != nil {
+				e.logger.Printf("ignore provider %s as not found", result.Provider)
+				continue
+			}
+			priority := comparer.Compare(keyword, result.Number) *
+				e.MustGetMovieProviderByName(result.Provider).Priority()
+			ps.Append(priority, result)
 		}
 		// sort according to priority.
-		results = ps.Stable().Underlying()
+		results = ps.SortFunc(sort.Stable).Underlying()
 	}()
 
 	if fallback /* query database for missing results  */ {
@@ -165,7 +196,7 @@ func (e *Engine) SearchMovieAll(keyword string, fallback bool) (results []*model
 	return
 }
 
-func (e *Engine) getMovieInfoFromDB(provider javtube.MovieProvider, id string) (*model.MovieInfo, error) {
+func (e *Engine) getMovieInfoFromDB(provider mt.MovieProvider, id string) (*model.MovieInfo, error) {
 	info := &model.MovieInfo{}
 	err := e.db. // Exact match here.
 			Where("provider = ?", provider.Name()).
@@ -174,11 +205,11 @@ func (e *Engine) getMovieInfoFromDB(provider javtube.MovieProvider, id string) (
 	return info, err
 }
 
-func (e *Engine) getMovieInfoWithCallback(provider javtube.MovieProvider, id string, lazy bool, callback func() (*model.MovieInfo, error)) (info *model.MovieInfo, err error) {
+func (e *Engine) getMovieInfoWithCallback(provider mt.MovieProvider, id string, lazy bool, callback func() (*model.MovieInfo, error)) (info *model.MovieInfo, err error) {
 	defer func() {
 		// metadata validation check.
 		if err == nil && (info == nil || !info.Valid()) {
-			err = javtube.ErrIncompleteMetadata
+			err = mt.ErrIncompleteMetadata
 		}
 	}()
 	// Query DB first (by id).
@@ -198,9 +229,9 @@ func (e *Engine) getMovieInfoWithCallback(provider javtube.MovieProvider, id str
 	return callback()
 }
 
-func (e *Engine) getMovieInfoByProviderID(provider javtube.MovieProvider, id string, lazy bool) (*model.MovieInfo, error) {
-	if id = provider.NormalizeID(id); id == "" {
-		return nil, javtube.ErrInvalidID
+func (e *Engine) getMovieInfoByProviderID(provider mt.MovieProvider, id string, lazy bool) (*model.MovieInfo, error) {
+	if id = provider.NormalizeMovieID(id); id == "" {
+		return nil, mt.ErrInvalidID
 	}
 	return e.getMovieInfoWithCallback(provider, id, lazy, func() (*model.MovieInfo, error) {
 		return provider.GetMovieInfoByID(id)
@@ -215,13 +246,13 @@ func (e *Engine) GetMovieInfoByProviderID(name, id string, lazy bool) (*model.Mo
 	return e.getMovieInfoByProviderID(provider, id, lazy)
 }
 
-func (e *Engine) getMovieInfoByProviderURL(provider javtube.MovieProvider, rawURL string, lazy bool) (*model.MovieInfo, error) {
-	id, err := provider.ParseIDFromURL(rawURL)
+func (e *Engine) getMovieInfoByProviderURL(provider mt.MovieProvider, rawURL string, lazy bool) (*model.MovieInfo, error) {
+	id, err := provider.ParseMovieIDFromURL(rawURL)
 	switch {
 	case err != nil:
 		return nil, err
 	case id == "":
-		return nil, javtube.ErrInvalidURL
+		return nil, mt.ErrInvalidURL
 	}
 	return e.getMovieInfoWithCallback(provider, id, lazy, func() (*model.MovieInfo, error) {
 		return provider.GetMovieInfoByURL(rawURL)

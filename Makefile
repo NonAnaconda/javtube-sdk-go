@@ -1,6 +1,6 @@
-MODULE := github.com/javtube/javtube-sdk-go
+MODULE := github.com/metatube-community/metatube-sdk-go
 
-SERVER_NAME := javtube-server
+SERVER_NAME := metatube-server
 SERVER_CODE := cmd/server/main.go
 
 BUILD_DIR     := build
@@ -134,7 +134,7 @@ all-arch: $(UNIX_ARCH_LIST) $(WINDOWS_ARCH_LIST)
 releases: $(unix_releases) $(windows_releases)
 
 lint:
-	golangci-lint run --disable-all -E govet -E gofumpt -E megacheck ./...
+	golangci-lint run ./...
 
 clean:
 	rm -rf $(BUILD_DIR)

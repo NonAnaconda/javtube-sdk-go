@@ -11,11 +11,11 @@ import (
 	"github.com/gocolly/colly/v2"
 	"golang.org/x/net/html"
 
-	"github.com/javtube/javtube-sdk-go/common/parser"
-	"github.com/javtube/javtube-sdk-go/model"
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/fc2"
-	"github.com/javtube/javtube-sdk-go/provider/internal/scraper"
+	"github.com/metatube-community/metatube-sdk-go/common/parser"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/fc2/fc2util"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/scraper"
 )
 
 var (
@@ -29,9 +29,9 @@ const (
 )
 
 const (
-	baseURL   = "https://fc2hub.com/"
-	movieURL  = "https://fc2hub.com/video/%s/id%s/%s"
-	searchURL = "https://fc2hub.com/search?kw=%s"
+	baseURL   = "https://javten.com/"
+	movieURL  = "https://javten.com/video/%s/id%s/%s"
+	searchURL = "https://javten.com/search?kw=%s"
 )
 
 type FC2HUB struct {
@@ -51,7 +51,7 @@ func (fc2hub *FC2HUB) GetMovieInfoByID(id string) (info *model.MovieInfo, err er
 	return fc2hub.GetMovieInfoByURL(fmt.Sprintf(movieURL, ss[0], ss[1], padding))
 }
 
-func (fc2hub *FC2HUB) ParseIDFromURL(rawURL string) (string, error) {
+func (fc2hub *FC2HUB) ParseMovieIDFromURL(rawURL string) (string, error) {
 	homepage, err := url.Parse(rawURL)
 	if err != nil {
 		return "", err
@@ -63,7 +63,7 @@ func (fc2hub *FC2HUB) ParseIDFromURL(rawURL string) (string, error) {
 }
 
 func (fc2hub *FC2HUB) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err error) {
-	id, err := fc2hub.ParseIDFromURL(rawURL)
+	id, err := fc2hub.ParseMovieIDFromURL(rawURL)
 	if err != nil {
 		return
 	}
@@ -91,7 +91,7 @@ func (fc2hub *FC2HUB) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, e
 
 	// Number
 	c.OnXML(`//*[@id="content"]/div/div[2]/div[1]/div[1]/div[2]/div[1]/div[2]/h1`, func(e *colly.XMLElement) {
-		if num := fc2.ParseNumber(strings.TrimSpace(e.Text)); num != "" {
+		if num := fc2util.ParseNumber(strings.TrimSpace(e.Text)); num != "" {
 			info.Number = fmt.Sprintf("FC2-%s", num)
 		}
 	})
@@ -159,10 +159,13 @@ func (fc2hub *FC2HUB) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, e
 					info.Maker = data.Director
 				}
 				if len(info.Genres) == 0 {
-					info.Genres = data.Genre
+					info.Genres = removeEmpty(data.Genre)
+				}
+				if len(data.Actor) > 0 {
+					info.Actors = removeEmpty(data.Actor)
 				}
 				for _, identifier := range data.Identifier {
-					if num := fc2.ParseNumber(identifier); num != "" {
+					if num := fc2util.ParseNumber(identifier); num != "" {
 						info.Number = fmt.Sprintf("FC2-%s", num)
 						break
 					}
@@ -205,8 +208,8 @@ func (fc2hub *FC2HUB) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, e
 	return
 }
 
-func (fc2hub *FC2HUB) NormalizeKeyword(keyword string) string {
-	return fc2.ParseNumber(keyword)
+func (fc2hub *FC2HUB) NormalizeMovieKeyword(keyword string) string {
+	return fc2util.ParseNumber(keyword)
 }
 
 func (fc2hub *FC2HUB) SearchMovie(keyword string) (results []*model.MovieSearchResult, err error) {
@@ -234,6 +237,19 @@ func (fc2hub *FC2HUB) SearchMovie(keyword string) (results []*model.MovieSearchR
 	return
 }
 
+func removeEmpty(in []string) (out []string) {
+	if len(in) == 0 {
+		return in
+	}
+	out = make([]string, 0, len(in))
+	for _, elem := range in {
+		if strings.TrimSpace(elem) != "" {
+			out = append(out, elem)
+		}
+	}
+	return
+}
+
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

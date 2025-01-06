@@ -1,20 +1,22 @@
 package sod
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/antchfx/htmlquery"
 	"github.com/gocolly/colly/v2"
 	"golang.org/x/net/html"
 
-	"github.com/javtube/javtube-sdk-go/common/fetch"
-	"github.com/javtube/javtube-sdk-go/common/number"
-	"github.com/javtube/javtube-sdk-go/common/parser"
-	"github.com/javtube/javtube-sdk-go/model"
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/internal/scraper"
+	"github.com/metatube-community/metatube-sdk-go/common/fetch"
+	"github.com/metatube-community/metatube-sdk-go/common/number"
+	"github.com/metatube-community/metatube-sdk-go/common/parser"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/scraper"
 )
 
 var (
@@ -35,6 +37,8 @@ const (
 	onTimeURL = "https://ec.sod.co.jp/prime/_ontime.php"
 )
 
+var ErrImageNotAvailable = errors.New("image not available")
+
 // SOD needs `Referer` header when request to view images and videos.
 type SOD struct {
 	*fetch.Fetcher
@@ -48,7 +52,7 @@ func New() *SOD {
 	}
 }
 
-func (sod *SOD) NormalizeID(id string) string {
+func (sod *SOD) NormalizeMovieID(id string) string {
 	return strings.ToUpper(id) /* SOD requires uppercase ID */
 }
 
@@ -56,16 +60,16 @@ func (sod *SOD) GetMovieInfoByID(id string) (info *model.MovieInfo, err error) {
 	return sod.GetMovieInfoByURL(fmt.Sprintf(movieURL, url.QueryEscape(id)))
 }
 
-func (sod *SOD) ParseIDFromURL(rawURL string) (string, error) {
+func (sod *SOD) ParseMovieIDFromURL(rawURL string) (string, error) {
 	homepage, err := url.Parse(rawURL)
 	if err != nil {
 		return "", err
 	}
-	return sod.NormalizeID(homepage.Query().Get("id")), nil
+	return sod.NormalizeMovieID(homepage.Query().Get("id")), nil
 }
 
 func (sod *SOD) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err error) {
-	id, err := sod.ParseIDFromURL(rawURL)
+	id, err := sod.ParseMovieIDFromURL(rawURL)
 	if err != nil {
 		return
 	}
@@ -156,11 +160,18 @@ func (sod *SOD) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err err
 		info.Score = parser.ParseScore(e.Text)
 	})
 
+	defer func() {
+		// Validate cover image
+		if err == nil && !isValidImageURL(info.CoverURL) {
+			err = ErrImageNotAvailable
+		}
+	}()
+
 	err = c.Visit(composedMovieURL)
 	return
 }
 
-func (sod *SOD) NormalizeKeyword(keyword string) string {
+func (sod *SOD) NormalizeMovieKeyword(keyword string) string {
 	if number.IsSpecial(keyword) {
 		return ""
 	}
@@ -185,8 +196,11 @@ func (sod *SOD) SearchMovie(keyword string) (results []*model.MovieSearchResult,
 
 	c.OnXML(`//*[@id="videos_s_mainbox"]`, func(e *colly.XMLElement) {
 		thumb := e.Request.AbsoluteURL(e.ChildAttr(`.//div[@class="videis_s_img"]/a/img`, "src"))
+		if !isValidImageURL(thumb) {
+			return
+		}
 		homepage := e.Request.AbsoluteURL(e.ChildAttr(`.//div[@class="videis_s_img"]/a`, "href"))
-		id, _ := sod.ParseIDFromURL(homepage)
+		id, _ := sod.ParseMovieIDFromURL(homepage)
 		results = append(results, &model.MovieSearchResult{
 			ID:          id,
 			Number:      id,
@@ -203,6 +217,10 @@ func (sod *SOD) SearchMovie(keyword string) (results []*model.MovieSearchResult,
 	return
 }
 
+func isValidImageURL(s string) bool {
+	return !regexp.MustCompile(`/thumbnail/now_\w+\.jpg`).MatchString(s)
+}
+
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

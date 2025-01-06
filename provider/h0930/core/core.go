@@ -11,9 +11,9 @@ import (
 
 	"github.com/gocolly/colly/v2"
 
-	"github.com/javtube/javtube-sdk-go/common/parser"
-	"github.com/javtube/javtube-sdk-go/model"
-	"github.com/javtube/javtube-sdk-go/provider/internal/scraper"
+	"github.com/metatube-community/metatube-sdk-go/common/parser"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/scraper"
 )
 
 type Core struct {
@@ -24,7 +24,7 @@ type Core struct {
 	MovieURL string
 
 	// Values
-	DefaultPriority int
+	DefaultPriority float64
 	DefaultName     string
 	DefaultMaker    string
 }
@@ -42,7 +42,7 @@ func (core *Core) GetMovieInfoByID(id string) (info *model.MovieInfo, err error)
 	return core.GetMovieInfoByURL(fmt.Sprintf(core.MovieURL, id))
 }
 
-func (core *Core) ParseIDFromURL(rawURL string) (string, error) {
+func (core *Core) ParseMovieIDFromURL(rawURL string) (string, error) {
 	homepage, err := url.Parse(rawURL)
 	if err != nil {
 		return "", err
@@ -51,7 +51,7 @@ func (core *Core) ParseIDFromURL(rawURL string) (string, error) {
 }
 
 func (core *Core) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err error) {
-	id, err := core.ParseIDFromURL(rawURL)
+	id, err := core.ParseMovieIDFromURL(rawURL)
 	if err != nil {
 		return
 	}

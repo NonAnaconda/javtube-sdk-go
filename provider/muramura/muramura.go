@@ -3,11 +3,15 @@ package muramura
 import (
 	"regexp"
 
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/1pondo/core"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/1pondo/core"
 )
 
-var _ provider.MovieProvider = (*MuraMura)(nil)
+var (
+	_ provider.MovieProvider = (*MuraMura)(nil)
+	_ provider.MovieReviewer = (*MuraMura)(nil)
+)
 
 const (
 	Name     = "MURAMURA"
@@ -39,7 +43,11 @@ func New() *MuraMura {
 	}
 }
 
-func (ppm *MuraMura) NormalizeID(id string) string {
+func (ppm *MuraMura) GetMovieReviewsByID(_ string) ([]*model.MovieReviewDetail, error) {
+	return nil, nil // no reviews provided.
+}
+
+func (ppm *MuraMura) NormalizeMovieID(id string) string {
 	if regexp.MustCompile(`^\d{6}_\d{3}$`).MatchString(id) {
 		return id
 	}
@@ -47,5 +55,5 @@ func (ppm *MuraMura) NormalizeID(id string) string {
 }
 
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

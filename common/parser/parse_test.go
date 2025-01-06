@@ -49,3 +49,36 @@ func TestParseActorNames(t *testing.T) {
 		assert.ElementsMatch(t, unit.want, ParseActorNames(unit.orig), fmt.Sprintf("Arg: %s", unit.orig))
 	}
 }
+
+func TestParseIDToNumber(t *testing.T) {
+	for _, unit := range []struct {
+		id, want string
+	}{
+		{"mdx0109", "MDX-0109"},
+		{"mdx-0264", "MDX-0264"},
+		{"91cm109", "91CM-109"},
+		{"91CM-109", "91CM-109"},
+		{"dldss287", "DLDSS-287"},
+	} {
+		assert.Equal(t, unit.want, ParseIDToNumber(unit.id))
+	}
+}
+
+func TestParseProviderID(t *testing.T) {
+	for _, unit := range []struct {
+		id, want string
+	}{
+		{"FANZA:mdx0109", "FANZA:mdx0109"},
+		{"FANZA:mdx0109:0.9", "FANZA:mdx0109"},
+		{"FANZA:mdx0109:0", "FANZA:mdx0109"},
+		{"FANZA:mdx0109:1", "FANZA:mdx0109"},
+		{"FANZA:mdx0109:1.2", "FANZA:mdx0109"},
+		{"AVBASE:dmm:ssis899", "AVBASE:dmm:ssis899"},
+		{"AVBASE:dmm:ssis899:0.99", "AVBASE:dmm:ssis899"},
+		{"ARZON:2234", "ARZON:2234"},
+		{"ARZON:2234:0.55", "ARZON:2234"},
+		{"ARZON:2234:1233", "ARZON:2234:1233"},
+	} {
+		assert.Equal(t, unit.want, ParseProviderID(unit.id))
+	}
+}

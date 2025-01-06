@@ -126,3 +126,15 @@ func ReplaceSpaceAll(s string) string {
 	}
 	return b.String()
 }
+
+func ParseIDToNumber(s string) string {
+	s = strings.ToUpper(s)
+	if ss := regexp.MustCompile(`(\d*[A-Z]+)(\d+)`).FindStringSubmatch(s); len(ss) >= 3 {
+		return fmt.Sprintf("%s-%s", ss[1], ss[2])
+	}
+	return s
+}
+
+func ParseProviderID(s string) string {
+	return regexp.MustCompile(`:[0|1](\.\d+)?$`).ReplaceAllString(s, "")
+}

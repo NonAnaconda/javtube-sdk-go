@@ -4,8 +4,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/h0930/core"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/h0930/core"
 )
 
 var _ provider.MovieProvider = (*H0930)(nil)
@@ -36,7 +36,7 @@ func New() *H0930 {
 	}
 }
 
-func (h *H0930) NormalizeID(id string) string {
+func (h *H0930) NormalizeMovieID(id string) string {
 	if ss := regexp.MustCompile(`^(?i)(?:h0930[-_])?([a-z\d]+)$`).FindStringSubmatch(id); len(ss) == 2 {
 		return strings.ToLower(ss[1])
 	}
@@ -44,5 +44,5 @@ func (h *H0930) NormalizeID(id string) string {
 }
 
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

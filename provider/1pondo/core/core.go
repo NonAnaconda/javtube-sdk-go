@@ -13,14 +13,15 @@ import (
 	"github.com/gocolly/colly/v2"
 	"github.com/nlnwa/whatwg-url/url"
 
-	"github.com/javtube/javtube-sdk-go/common/parser"
-	"github.com/javtube/javtube-sdk-go/model"
-	"github.com/javtube/javtube-sdk-go/provider/internal/scraper"
+	"github.com/metatube-community/metatube-sdk-go/common/parser"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/scraper"
 )
 
 // API Paths
 const (
 	movieDetailPath        = "/dyn/phpauto/movie_details/movie_id/%s.json"
+	movieReviewPath        = "/dyn/phpauto/new_movie_reviews/movie_id/%s.json"
 	movieGalleryPath       = "/dyn/dla/json/movie_gallery/%s.json"
 	movieLegacyGalleryPath = "/dyn/phpauto/movie_galleries/movie_id/%s.json"
 )
@@ -34,7 +35,7 @@ type Core struct {
 	SampleVideoURL string
 
 	// Values
-	DefaultPriority int
+	DefaultPriority float64
 	DefaultName     string
 	DefaultMaker    string
 
@@ -44,22 +45,82 @@ type Core struct {
 }
 
 func (core *Core) Init() *Core {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxConnsPerHost = 2
+	t.MaxIdleConnsPerHost = 2
+	t.IdleConnTimeout = 5 * time.Minute
+
 	core.Scraper = scraper.NewDefaultScraper(core.DefaultName, core.BaseURL, core.DefaultPriority,
 		scraper.WithHeaders(map[string]string{
 			"Content-Type": "application/json",
+			"Connection":   "keep-alive",
 		}),
-		scraper.WithCookies(core.BaseURL, []*http.Cookie{
-			{Name: "ageCheck", Value: "1"},
-		}),
+		scraper.WithDisableCookies(),
+		scraper.WithTransport(t), // Set custom HTTP transport.
 	)
 	return core
+}
+
+func (core *Core) Fetch(url string) (resp *http.Response, err error) {
+	return (&http.Client{
+		Transport: http.DefaultTransport.(*http.Transport).Clone(),
+		Timeout:   15 * time.Second,
+	}).Get(url)
+}
+
+func (core *Core) GetMovieReviewsByID(id string) (reviews []*model.MovieReviewDetail, err error) {
+	c := core.ClonedCollector()
+
+	c.OnResponse(func(r *colly.Response) {
+		data := struct {
+			AvgRating   float64 `json:"AvgRating"`
+			MetaMovieID int     `json:"MetaMovieID"`
+			MovieID     string  `json:"MovieID"`
+			SiteID      int     `json:"SiteID"`
+			Rows        []struct {
+				Created     string `json:"Created"`
+				MovieID     string `json:"MovieID"`
+				Nickname    string `json:"Nickname"`
+				ReviewID    string `json:"ReviewID"`
+				UserComment string `json:"UserComment"`
+				UserRating  string `json:"UserRating"`
+			} `json:"Rows"`
+		}{}
+		if err = json.Unmarshal(r.Body, &data); err == nil {
+			for _, row := range data.Rows {
+				if strings.TrimSpace(row.UserComment) == "" ||
+					strings.TrimSpace(row.Nickname) == "" {
+					continue
+				}
+				reviews = append(reviews, &model.MovieReviewDetail{
+					Author:  row.Nickname,
+					Comment: row.UserComment,
+					Score:   parser.ParseScore(row.UserRating),
+					Date:    parser.ParseDate(row.Created),
+				})
+			}
+		}
+	})
+
+	if vErr := c.Visit(urlJoin(core.BaseURL, fmt.Sprintf(movieReviewPath, id))); vErr != nil {
+		err = vErr
+	}
+	return
+}
+
+func (core *Core) GetMovieReviewsByURL(rawURL string) (reviews []*model.MovieReviewDetail, err error) {
+	id, err := core.ParseMovieIDFromURL(rawURL)
+	if err != nil {
+		return
+	}
+	return core.GetMovieReviewsByID(id)
 }
 
 func (core *Core) GetMovieInfoByID(id string) (info *model.MovieInfo, err error) {
 	return core.GetMovieInfoByURL(fmt.Sprintf(core.MovieURL, id))
 }
 
-func (core *Core) ParseIDFromURL(rawURL string) (string, error) {
+func (core *Core) ParseMovieIDFromURL(rawURL string) (string, error) {
 	homepage, err := urlParser.Parse(rawURL)
 	if err != nil {
 		return "", err
@@ -68,7 +129,7 @@ func (core *Core) ParseIDFromURL(rawURL string) (string, error) {
 }
 
 func (core *Core) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err error) {
-	id, err := core.ParseIDFromURL(rawURL)
+	id, err := core.ParseMovieIDFromURL(rawURL)
 	if err != nil {
 		return
 	}

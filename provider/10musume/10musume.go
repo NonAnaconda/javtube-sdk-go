@@ -3,11 +3,14 @@ package tenmusume
 import (
 	"regexp"
 
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/1pondo/core"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/1pondo/core"
 )
 
-var _ provider.MovieProvider = (*TenMusume)(nil)
+var (
+	_ provider.MovieProvider = (*TenMusume)(nil)
+	_ provider.MovieReviewer = (*TenMusume)(nil)
+)
 
 const (
 	Name     = "10musume"
@@ -49,7 +52,7 @@ func New() *TenMusume {
 	}
 }
 
-func (mse *TenMusume) NormalizeID(id string) string {
+func (mse *TenMusume) NormalizeMovieID(id string) string {
 	if regexp.MustCompile(`^\d{6}_\d{2}$`).MatchString(id) {
 		return id
 	}
@@ -57,5 +60,5 @@ func (mse *TenMusume) NormalizeID(id string) string {
 }
 
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

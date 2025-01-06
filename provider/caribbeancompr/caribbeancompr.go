@@ -3,11 +3,14 @@ package caribbeancompr
 import (
 	"regexp"
 
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/caribbeancom/core"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/caribbeancom/core"
 )
 
-var _ provider.MovieProvider = (*CaribbeancomPremium)(nil)
+var (
+	_ provider.MovieProvider = (*CaribbeancomPremium)(nil)
+	_ provider.MovieReviewer = (*CaribbeancomPremium)(nil)
+)
 
 const (
 	Name     = "CaribbeancomPR"
@@ -35,7 +38,7 @@ func New() *CaribbeancomPremium {
 	}
 }
 
-func (carib *CaribbeancomPremium) NormalizeID(id string) string {
+func (carib *CaribbeancomPremium) NormalizeMovieID(id string) string {
 	if regexp.MustCompile(`^\d{6}_\d{3}$`).MatchString(id) {
 		return id
 	}
@@ -43,5 +46,5 @@ func (carib *CaribbeancomPremium) NormalizeID(id string) string {
 }
 
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

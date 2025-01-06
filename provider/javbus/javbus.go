@@ -11,16 +11,18 @@ import (
 
 	"github.com/gocolly/colly/v2"
 
-	"github.com/javtube/javtube-sdk-go/common/number"
-	"github.com/javtube/javtube-sdk-go/common/parser"
-	"github.com/javtube/javtube-sdk-go/model"
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/internal/scraper"
+	"github.com/metatube-community/metatube-sdk-go/common/fetch"
+	"github.com/metatube-community/metatube-sdk-go/common/number"
+	"github.com/metatube-community/metatube-sdk-go/common/parser"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/scraper"
 )
 
 var (
 	_ provider.MovieProvider = (*JavBus)(nil)
 	_ provider.MovieSearcher = (*JavBus)(nil)
+	_ provider.Fetcher       = (*JavBus)(nil)
 )
 
 const (
@@ -36,12 +38,18 @@ const (
 )
 
 type JavBus struct {
+	*fetch.Fetcher
 	*scraper.Scraper
 }
 
 func New() *JavBus {
 	return &JavBus{
+		Fetcher: fetch.Default(&fetch.Config{Referer: baseURL}),
 		Scraper: scraper.NewDefaultScraper(Name, baseURL, Priority,
+			scraper.WithDisableRedirects(),
+			scraper.WithHeaders(map[string]string{
+				"Referer": baseURL,
+			}),
 			scraper.WithCookies(baseURL, []*http.Cookie{
 				// existmag=all
 				{Name: "existmag", Value: "all"},
@@ -49,7 +57,7 @@ func New() *JavBus {
 	}
 }
 
-func (bus *JavBus) NormalizeID(id string) string {
+func (bus *JavBus) NormalizeMovieID(id string) string {
 	return strings.ToUpper(id)
 }
 
@@ -57,16 +65,16 @@ func (bus *JavBus) GetMovieInfoByID(id string) (info *model.MovieInfo, err error
 	return bus.GetMovieInfoByURL(fmt.Sprintf(movieURL, id))
 }
 
-func (bus *JavBus) ParseIDFromURL(rawURL string) (string, error) {
+func (bus *JavBus) ParseMovieIDFromURL(rawURL string) (string, error) {
 	homepage, err := url.Parse(rawURL)
 	if err != nil {
 		return "", err
 	}
-	return bus.NormalizeID(path.Base(homepage.Path)), nil
+	return bus.NormalizeMovieID(path.Base(homepage.Path)), nil
 }
 
 func (bus *JavBus) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err error) {
-	id, err := bus.ParseIDFromURL(rawURL)
+	id, err := bus.ParseMovieIDFromURL(rawURL)
 	if err != nil {
 		return
 	}
@@ -137,6 +145,7 @@ func (bus *JavBus) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err 
 			var mu sync.Mutex
 			d := c.Clone()
 			d.Async = true
+			d.ParseHTTPErrorResponse = false
 			d.OnScraped(func(r *colly.Response) {
 				mu.Lock()
 				defer mu.Unlock()
@@ -153,7 +162,7 @@ func (bus *JavBus) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err 
 	return
 }
 
-func (bus *JavBus) NormalizeKeyword(keyword string) string {
+func (bus *JavBus) NormalizeMovieKeyword(keyword string) string {
 	if number.IsSpecial(keyword) && !regexp.MustCompile(`^(?i)([\d-_]{4,}|[a-z]{1,4}\d{2,4}|heyzo[-_].+)$`).MatchString(keyword) {
 		return "" // JavBus has no those special contents.
 	}
@@ -176,7 +185,7 @@ func (bus *JavBus) SearchMovie(keyword string) (results []*model.MovieSearchResu
 		}
 
 		homepage := e.Request.AbsoluteURL(e.Attr("href"))
-		id, _ := bus.ParseIDFromURL(homepage)
+		id, _ := bus.ParseMovieIDFromURL(homepage)
 		results = append(results, &model.MovieSearchResult{
 			ID:          id,
 			Number:      e.ChildText(`.//div[2]/span/date[1]`),
@@ -202,5 +211,5 @@ func (bus *JavBus) SearchMovie(keyword string) (results []*model.MovieSearchResu
 }
 
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

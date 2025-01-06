@@ -3,6 +3,7 @@ package fanza
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -14,21 +15,24 @@ import (
 	"time"
 
 	"github.com/antchfx/htmlquery"
+	"github.com/docker/go-units"
 	"github.com/gocolly/colly/v2"
 	"golang.org/x/net/html"
 
-	"github.com/javtube/javtube-sdk-go/common/comparer"
-	"github.com/javtube/javtube-sdk-go/common/number"
-	"github.com/javtube/javtube-sdk-go/common/parser"
-	"github.com/javtube/javtube-sdk-go/model"
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/internal/imhelper"
-	"github.com/javtube/javtube-sdk-go/provider/internal/scraper"
+	"github.com/metatube-community/metatube-sdk-go/collections"
+	"github.com/metatube-community/metatube-sdk-go/common/comparer"
+	"github.com/metatube-community/metatube-sdk-go/common/number"
+	"github.com/metatube-community/metatube-sdk-go/common/parser"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/imcmp"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/scraper"
 )
 
 var (
 	_ provider.MovieProvider = (*FANZA)(nil)
 	_ provider.MovieSearcher = (*FANZA)(nil)
+	_ provider.MovieReviewer = (*FANZA)(nil)
 )
 
 const (
@@ -49,6 +53,10 @@ const (
 	movieMonoAnimeURL       = "https://www.dmm.co.jp/mono/anime/-/detail/=/cid=%s/"
 )
 
+const regionNotAvailable = "not-available-in-your-region"
+
+var ErrRegionNotAvailable = errors.New(regionNotAvailable)
+
 type FANZA struct {
 	*scraper.Scraper
 }
@@ -62,11 +70,11 @@ func New() *FANZA {
 	}
 }
 
-func (fz *FANZA) NormalizeID(id string) string {
+func (fz *FANZA) NormalizeMovieID(id string) string {
 	return strings.ToLower(id) /* FANZA uses lowercase ID */
 }
 
-func (fz *FANZA) GetMovieInfoByID(id string) (info *model.MovieInfo, err error) {
+func (fz *FANZA) getHomepagesByID(id string) []string {
 	homepages := []string{
 		fmt.Sprintf(movieMonoDVDURL, id),
 		fmt.Sprintf(movieDigitalVideoAURL, id),
@@ -79,28 +87,35 @@ func (fz *FANZA) GetMovieInfoByID(id string) (info *model.MovieInfo, err error) 
 		// might be digital videoa url, try it first.
 		homepages[0], homepages[1] = homepages[1], homepages[0]
 	}
-	for _, homepage := range homepages {
-		if info, err = fz.GetMovieInfoByURL(homepage); err == nil && info.Valid() {
+	return homepages
+}
+
+func (fz *FANZA) GetMovieInfoByID(id string) (info *model.MovieInfo, err error) {
+	for _, homepage := range fz.getHomepagesByID(id) {
+		if info, err = fz.GetMovieInfoByURL(homepage); errors.Is(err, ErrRegionNotAvailable) || err == nil && info.Valid() {
 			return
 		}
 	}
-	return nil, provider.ErrInfoNotFound
+	if err != nil && err.Error() == http.StatusText(http.StatusNotFound) {
+		err = provider.ErrInfoNotFound
+	}
+	return
 }
 
-func (fz *FANZA) ParseIDFromURL(rawURL string) (id string, err error) {
+func (fz *FANZA) ParseMovieIDFromURL(rawURL string) (id string, err error) {
 	homepage, err := url.Parse(rawURL)
 	if err != nil {
 		return
 	}
 	if sub := regexp.MustCompile(`/cid=(.*?)/`).
 		FindStringSubmatch(homepage.Path); len(sub) == 2 {
-		id = fz.NormalizeID(sub[1])
+		id = fz.NormalizeMovieID(sub[1])
 	}
 	return
 }
 
 func (fz *FANZA) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err error) {
-	id, err := fz.ParseIDFromURL(rawURL)
+	id, err := fz.ParseMovieIDFromURL(rawURL)
 	if err != nil {
 		return
 	}
@@ -277,28 +292,30 @@ func (fz *FANZA) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err er
 
 	// Preview Video
 	c.OnXML(`//*[@id="detail-sample-movie"]/div/a`, func(e *colly.XMLElement) {
+		var videoPath string
+		if dvu := e.Attr("data-video-url"); dvu != "" { // mono
+			videoPath = dvu
+		} else if v := e.Attr("onclick"); v != "" { // digital
+			videoPath = regexp.MustCompile(`/(.+)/`).FindString(v)
+		}
 		d := c.Clone()
 		d.OnXML(`//iframe`, func(e *colly.XMLElement) {
 			d.OnResponse(func(r *colly.Response) {
 				if resp := regexp.MustCompile(`const args = (\{.+});`).FindSubmatch(r.Body); len(resp) == 2 {
 					data := struct {
 						Bitrates []struct {
-							Bitrate int    `json:"bitrate"`
-							Src     string `json:"src"`
+							// Bitrate int    `json:"bitrate"`
+							Src string `json:"src"`
 						} `json:"bitrates"`
 					}{}
 					if json.Unmarshal(resp[1], &data) == nil && len(data.Bitrates) > 0 {
-						sort.SliceStable(data.Bitrates, func(i, j int) bool {
-							return data.Bitrates[i].Bitrate < data.Bitrates[j].Bitrate
-						})
-						info.PreviewVideoURL = e.Request.AbsoluteURL(data.Bitrates[len(data.Bitrates)-1].Src)
+						info.PreviewVideoURL = e.Request.AbsoluteURL(data.Bitrates[0].Src)
 					}
 				}
 			})
 			d.Visit(e.Request.AbsoluteURL(e.Attr("src")))
 		})
-		d.Visit(e.Request.AbsoluteURL(regexp.MustCompile(`/(.+)/`).
-			FindString(e.Attr("onclick"))))
+		d.Visit(e.Request.AbsoluteURL(videoPath))
 	})
 
 	// Preview Video (VR)
@@ -314,10 +331,32 @@ func (fz *FANZA) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err er
 			FindString(e.Attr("onclick"))))
 	})
 
-	// Preview Images
+	// In case of any duplication
+	previewImageSet := collections.NewOrderedSet(func(v string) string { return v })
+	extractImageSrc := func(e *colly.XMLElement) string {
+		src := e.ChildAttr(`.//img`, "data-lazy")
+		if strings.TrimSpace(src) == "" {
+			src = e.ChildAttr(`.//img`, "src")
+		}
+		return src
+	}
+
+	// Preview Images Digital/DVD
+	c.OnXML(`//*[@id="sample-image-block"]//a[@name="sample-image"]`, func(e *colly.XMLElement) {
+		previewImageSet.Add(e.Request.AbsoluteURL(PreviewSrc(extractImageSrc(e))))
+	})
+
+	// Preview Images Digital (Fallback)
 	c.OnXML(`//*[@id="sample-image-block"]/a`, func(e *colly.XMLElement) {
-		info.PreviewImages = append(info.PreviewImages,
-			e.Request.AbsoluteURL(PreviewSrc(e.ChildAttr(`.//img`, "src"))))
+		if previewImageSet.Len() == 0 {
+			return
+		}
+		previewImageSet.Add(e.Request.AbsoluteURL(PreviewSrc(extractImageSrc(e))))
+	})
+
+	// Final Preview Images
+	c.OnScraped(func(_ *colly.Response) {
+		info.PreviewImages = previewImageSet.Slice()
 	})
 
 	// Final (images)
@@ -326,6 +365,41 @@ func (fz *FANZA) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err er
 			// try to convert thumb url to cover url.
 			info.CoverURL = PreviewSrc(info.ThumbURL)
 		}
+	})
+
+	// Find big thumb/cover images (awsimgsrc.dmm.co.jp)
+	c.OnScraped(func(_ *colly.Response) {
+		start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+		if time.Time(info.ReleaseDate).Before(start) {
+			return // ignore movies released before this date.
+		}
+		if !strings.Contains(info.Homepage, "/digital/videoa") {
+			return // ignore non-digital/videoa typed movies.
+		}
+		d := c.Clone()
+		d.Async = true
+		d.ParseHTTPErrorResponse = false
+		d.OnResponseHeaders(func(r *colly.Response) {
+			if r.Headers.Get("Content-Type") != "image/jpeg" {
+				return // ignore non-image/jpeg contents.
+			}
+			length, _ := strconv.Atoi(r.Headers.Get("Content-Length"))
+			switch {
+			case strings.HasSuffix(info.ThumbURL, path.Base(r.Request.URL.Path)) && length > 100*units.KiB:
+				info.BigThumbURL = r.Request.URL.String()
+			case strings.HasSuffix(info.CoverURL, path.Base(r.Request.URL.Path)) && length > 500*units.KiB:
+				info.BigCoverURL = r.Request.URL.String()
+			}
+			// abort to prevent image content from being downloaded.
+			r.Request.Abort()
+		})
+		d.Visit(strings.ReplaceAll(info.ThumbURL,
+			"https://pics.dmm.co.jp/",
+			"https://awsimgsrc.dmm.co.jp/pics_dig/"))
+		d.Visit(strings.ReplaceAll(info.CoverURL,
+			"https://pics.dmm.co.jp/",
+			"https://awsimgsrc.dmm.co.jp/pics_dig/"))
+		d.Wait()
 	})
 
 	// Final (big thumb image)
@@ -342,7 +416,7 @@ func (fz *FANZA) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err er
 			return
 		}
 
-		if imhelper.Similar(info.ThumbURL, info.PreviewImages[0], nil) {
+		if imcmp.Similar(info.ThumbURL, info.PreviewImages[0], nil) {
 			// the first preview image is a big thumb image.
 			info.BigThumbURL = info.PreviewImages[0]
 			info.PreviewImages = info.PreviewImages[1:]
@@ -380,11 +454,19 @@ func (fz *FANZA) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err er
 		}
 	})
 
-	err = c.Visit(info.Homepage)
+	c.OnScraped(func(r *colly.Response) {
+		if !info.Valid() && isRegionError(r) {
+			err = ErrRegionNotAvailable
+		}
+	})
+
+	if vErr := c.Visit(info.Homepage); vErr != nil {
+		err = vErr
+	}
 	return
 }
 
-func (fz *FANZA) NormalizeKeyword(keyword string) string {
+func (fz *FANZA) NormalizeMovieKeyword(keyword string) string {
 	if number.IsSpecial(keyword) {
 		return ""
 	}
@@ -413,6 +495,11 @@ func (fz *FANZA) searchMovie(keyword string) (results []*model.MovieSearchResult
 			sort.SliceStable(results, func(i, j int) bool {
 				a := r.ReplaceAllString(results[i].ID, "${1}${2}")
 				b := r.ReplaceAllString(results[j].ID, "${1}${2}")
+				if a == b {
+					// prefer digital results.
+					return strings.Contains(results[i].Homepage, "/digital/") ||
+						!strings.Contains(results[j].Homepage, "/digital/")
+				}
 				return comparer.Compare(a, x) >= comparer.Compare(b, x)
 			})
 		}
@@ -425,7 +512,7 @@ func (fz *FANZA) searchMovie(keyword string) (results []*model.MovieSearchResult
 		if !strings.HasPrefix(homepage, baseDigitalURL) && !strings.HasPrefix(homepage, baseMonoURL) {
 			return // ignore other contents.
 		}
-		id, _ := fz.ParseIDFromURL(homepage) // ignore error.
+		id, _ := fz.ParseMovieIDFromURL(homepage) // ignore error.
 
 		thumb := e.ChildAttr(`.//p[@class="tmb"]/a/span[1]/img`, "src")
 		if re := regexp.MustCompile(`(p[a-z]\.)jpg`); re.MatchString(thumb) {
@@ -451,7 +538,68 @@ func (fz *FANZA) searchMovie(keyword string) (results []*model.MovieSearchResult
 		})
 	})
 
-	err = c.Visit(fmt.Sprintf(searchURL, url.QueryEscape(keyword)))
+	c.OnScraped(func(r *colly.Response) {
+		if isRegionError(r) {
+			err = ErrRegionNotAvailable
+		}
+	})
+
+	if vErr := c.Visit(fmt.Sprintf(searchURL, url.QueryEscape(keyword))); vErr != nil {
+		err = vErr
+	}
+	return
+}
+
+func (fz *FANZA) GetMovieReviewsByID(id string) (reviews []*model.MovieReviewDetail, err error) {
+	for _, homepage := range fz.getHomepagesByID(id) {
+		if reviews, err = fz.GetMovieReviewsByURL(homepage); err == nil && len(reviews) > 0 {
+			return
+		}
+	}
+	return nil, provider.ErrInfoNotFound
+}
+
+func (fz *FANZA) GetMovieReviewsByURL(rawURL string) (reviews []*model.MovieReviewDetail, err error) {
+	c := fz.ClonedCollector()
+
+	c.OnXML(`//*[starts-with(@id, 'review')]//div[ends-with(@class, 'review__list')]/ul/li`, func(e *colly.XMLElement) {
+		comment := strings.TrimSpace(e.ChildText(`.//div[1]`))
+
+		var name string
+		if n := htmlquery.FindOne(e.DOM.(*html.Node), `.//div[2]/p/span[ends-with(@class, 'review__unit__reviewer')]/a`); n != nil {
+			if n := n.FirstChild; n != nil && n.Type == html.TextNode {
+				name = strings.TrimSpace(n.Data)
+			}
+		}
+		if name == "" /* fallback */ {
+			name = strings.TrimSpace(regexp.MustCompile(`(さん)?(のレビュー)?`).ReplaceAllString(
+				e.ChildText(`.//div[2]/p/span[ends-with(@class, 'review__unit__reviewer')]`), ""))
+		}
+
+		if name == "" || comment == "" {
+			return
+		}
+
+		score := 0.0
+		ratings := strings.Split(strings.TrimSpace(e.ChildAttr(`.//p/span[1]`, "class")), "-")
+		if len(ratings) > 0 {
+			score = parser.ParseScore(ratings[len(ratings)-1]) / 10
+			if score > 5.0 {
+				score = 0 // reset, must be an error
+			}
+		}
+
+		reviews = append(reviews, &model.MovieReviewDetail{
+			Author:  name,
+			Comment: comment,
+			Score:   score,
+			Title:   strings.TrimSpace(e.ChildText(`.//p/span[ends-with(@class, 'review__unit__title')]`)),
+			Date: parser.ParseDate(strings.Trim(
+				e.ChildText(`.//div[2]/p/span[ends-with(@class, 'review__unit__postdate')]`), "- ")),
+		})
+	})
+
+	err = c.Visit(rawURL)
 	return
 }
 
@@ -475,6 +623,15 @@ func parseActors(n *html.Node, texts *[]string) {
 	next:
 		continue
 	}
+}
+
+func isRegionError(r *colly.Response) bool {
+	const accountsDomain = "accounts.dmm.co.jp"
+	if strings.Contains(r.Request.URL.Path, regionNotAvailable) ||
+		strings.Contains(r.Request.URL.Host, accountsDomain) {
+		return true
+	}
+	return false
 }
 
 func (fz *FANZA) parseScoreFromURL(s string) float64 {
@@ -541,5 +698,5 @@ func PreviewSrc(s string) string {
 }
 
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

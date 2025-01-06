@@ -3,11 +3,15 @@ package onepondo
 import (
 	"regexp"
 
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/1pondo/core"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/1pondo/core"
 )
 
-var _ provider.MovieProvider = (*OnePondo)(nil)
+var (
+	_ provider.MovieProvider = (*OnePondo)(nil)
+	_ provider.MovieReviewer = (*OnePondo)(nil)
+	_ provider.Fetcher       = (*OnePondo)(nil)
+)
 
 const (
 	Name     = "1Pondo"
@@ -49,7 +53,7 @@ func New() *OnePondo {
 	}
 }
 
-func (opd *OnePondo) NormalizeID(id string) string {
+func (opd *OnePondo) NormalizeMovieID(id string) string {
 	if regexp.MustCompile(`^\d{6}_\d{3}$`).MatchString(id) {
 		return id
 	}
@@ -57,5 +61,5 @@ func (opd *OnePondo) NormalizeID(id string) string {
 }
 
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

@@ -10,12 +10,12 @@ import (
 	"github.com/gocolly/colly/v2"
 	"golang.org/x/net/html"
 
-	"github.com/javtube/javtube-sdk-go/common/fetch"
-	"github.com/javtube/javtube-sdk-go/common/number"
-	"github.com/javtube/javtube-sdk-go/common/parser"
-	"github.com/javtube/javtube-sdk-go/model"
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/internal/scraper"
+	"github.com/metatube-community/metatube-sdk-go/common/fetch"
+	"github.com/metatube-community/metatube-sdk-go/common/number"
+	"github.com/metatube-community/metatube-sdk-go/common/parser"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/scraper"
 )
 
 var (
@@ -52,7 +52,7 @@ func (az *ARZON) GetMovieInfoByID(id string) (info *model.MovieInfo, err error) 
 	return az.GetMovieInfoByURL(fmt.Sprintf(movieURL, id))
 }
 
-func (az *ARZON) ParseIDFromURL(rawURL string) (id string, err error) {
+func (az *ARZON) ParseMovieIDFromURL(rawURL string) (id string, err error) {
 	homepage, err := url.Parse(rawURL)
 	if err != nil {
 		return
@@ -65,7 +65,7 @@ func (az *ARZON) ParseIDFromURL(rawURL string) (id string, err error) {
 }
 
 func (az *ARZON) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err error) {
-	id, err := az.ParseIDFromURL(rawURL)
+	id, err := az.ParseMovieIDFromURL(rawURL)
 	if err != nil {
 		return
 	}
@@ -170,7 +170,7 @@ func (az *ARZON) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err er
 	return
 }
 
-func (az *ARZON) NormalizeKeyword(keyword string) string {
+func (az *ARZON) NormalizeMovieKeyword(keyword string) string {
 	if number.IsSpecial(keyword) {
 		return ""
 	}
@@ -191,7 +191,7 @@ func (az *ARZON) SearchMovie(keyword string) (results []*model.MovieSearchResult
 
 	var ids []string
 	c.OnXML(`//*[@id="item"]//dt`, func(e *colly.XMLElement) {
-		id, _ := az.ParseIDFromURL(e.Request.AbsoluteURL(e.ChildAttr(`.//a`, "href")))
+		id, _ := az.ParseMovieIDFromURL(e.Request.AbsoluteURL(e.ChildAttr(`.//a`, "href")))
 		ids = append(ids, id)
 	})
 
@@ -220,5 +220,5 @@ func (az *ARZON) SearchMovie(keyword string) (results []*model.MovieSearchResult
 }
 
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

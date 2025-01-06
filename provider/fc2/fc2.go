@@ -9,10 +9,11 @@ import (
 
 	"github.com/gocolly/colly/v2"
 
-	"github.com/javtube/javtube-sdk-go/common/parser"
-	"github.com/javtube/javtube-sdk-go/model"
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/internal/scraper"
+	"github.com/metatube-community/metatube-sdk-go/common/parser"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/fc2/fc2util"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/scraper"
 )
 
 var _ provider.MovieProvider = (*FC2)(nil)
@@ -36,15 +37,15 @@ func New() *FC2 {
 	return &FC2{scraper.NewDefaultScraper(Name, baseURL, Priority)}
 }
 
-func (fc2 *FC2) NormalizeID(id string) string {
-	return ParseNumber(id)
+func (fc2 *FC2) NormalizeMovieID(id string) string {
+	return fc2util.ParseNumber(id)
 }
 
 func (fc2 *FC2) GetMovieInfoByID(id string) (info *model.MovieInfo, err error) {
 	return fc2.GetMovieInfoByURL(fmt.Sprintf(movieURL, id))
 }
 
-func (fc2 *FC2) ParseIDFromURL(rawURL string) (string, error) {
+func (fc2 *FC2) ParseMovieIDFromURL(rawURL string) (string, error) {
 	homepage, err := url.Parse(rawURL)
 	if err != nil {
 		return "", err
@@ -53,7 +54,7 @@ func (fc2 *FC2) ParseIDFromURL(rawURL string) (string, error) {
 }
 
 func (fc2 *FC2) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err error) {
-	id, err := fc2.ParseIDFromURL(rawURL)
+	id, err := fc2.ParseMovieIDFromURL(rawURL)
 	if err != nil {
 		return
 	}
@@ -72,7 +73,7 @@ func (fc2 *FC2) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err err
 
 	// Headers
 	c.OnXML(`//div[@class="items_article_headerInfo"]`, func(e *colly.XMLElement) {
-		info.Title = e.ChildText(`.//h3/text()`)
+		info.Title = strings.Join(e.ChildTexts(`./h3/text()`), "")
 		info.Genres = e.ChildTexts(`.//section[@class="items_article_TagArea"]/div/a`)
 		info.Maker = e.ChildText(`.//ul/li[last()]/a`)
 		{ /* score */
@@ -134,13 +135,6 @@ func (fc2 *FC2) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err err
 	return
 }
 
-func ParseNumber(s string) string {
-	if ss := regexp.MustCompile(`^(?i)(?:FC2(?:[-_]?PPV)?[-_]?)?(\d+)$`).FindStringSubmatch(s); len(ss) == 2 {
-		return ss[1]
-	}
-	return ""
-}
-
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

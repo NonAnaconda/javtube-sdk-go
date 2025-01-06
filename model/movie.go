@@ -5,7 +5,10 @@ import (
 	"gorm.io/datatypes"
 )
 
-const MovieTableName = "movie_metadata"
+const (
+	MovieMetadataTableName = "movie_metadata"
+	MovieReviewsTableName  = "movie_reviews"
+)
 
 // MovieSearchResult is a subset of MovieInfo.
 type MovieSearchResult struct {
@@ -24,6 +27,41 @@ type MovieSearchResult struct {
 func (m *MovieSearchResult) Valid() bool {
 	return m.ID != "" && m.Number != "" && m.Title != "" &&
 		m.Provider != "" && m.Homepage != ""
+}
+
+type MovieReviewInfo struct {
+	ID          string                                   `json:"id" gorm:"primaryKey"`
+	Provider    string                                   `json:"provider" gorm:"primaryKey"`
+	Reviews     datatypes.JSONType[[]*MovieReviewDetail] `json:"reviews"`
+	TimeTracker `json:"-"`
+}
+
+func (*MovieReviewInfo) TableName() string {
+	return MovieReviewsTableName
+}
+
+func (m *MovieReviewInfo) Valid() bool {
+	if !(m.ID != "" && m.Provider != "") {
+		return false
+	}
+	for _, review := range m.Reviews.Data() {
+		if !review.Valid() {
+			return false
+		}
+	}
+	return true
+}
+
+type MovieReviewDetail struct {
+	Title   string         `json:"title"`
+	Author  string         `json:"author"`
+	Comment string         `json:"comment"`
+	Score   float64        `json:"score"`
+	Date    datatypes.Date `json:"date"`
+}
+
+func (m *MovieReviewDetail) Valid() bool {
+	return m.Author != "" && m.Comment != ""
 }
 
 type MovieInfo struct {
@@ -58,7 +96,7 @@ type MovieInfo struct {
 }
 
 func (*MovieInfo) TableName() string {
-	return MovieTableName
+	return MovieMetadataTableName
 }
 
 func (m *MovieInfo) Valid() bool {

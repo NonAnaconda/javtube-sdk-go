@@ -7,7 +7,7 @@ import (
 	"github.com/gocolly/colly/v2"
 	"github.com/gocolly/colly/v2/debug"
 
-	"github.com/javtube/javtube-sdk-go/common/random"
+	"github.com/metatube-community/metatube-sdk-go/common/random"
 )
 
 type Option func(*Scraper) error
@@ -78,9 +78,25 @@ func WithDisableCookies() Option {
 	}
 }
 
+func WithDisableRedirects() Option {
+	return func(s *Scraper) error {
+		s.c.ParseHTTPErrorResponse = true
+		s.c.SetRedirectHandler(func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		})
+		return nil
+	}
+}
+
 func WithTransport(transport http.RoundTripper) Option {
 	return func(s *Scraper) error {
 		s.c.WithTransport(transport)
 		return nil
+	}
+}
+
+func WithLimit(rule *colly.LimitRule) Option {
+	return func(s *Scraper) error {
+		return s.c.Limit(rule)
 	}
 }

@@ -1,3 +1,4 @@
+// Deprecated: X/sList is deprecated due to its outdated data and WAF.
 package xslist
 
 import (
@@ -12,10 +13,10 @@ import (
 	"golang.org/x/net/html"
 	dt "gorm.io/datatypes"
 
-	"github.com/javtube/javtube-sdk-go/common/parser"
-	"github.com/javtube/javtube-sdk-go/model"
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/internal/scraper"
+	"github.com/metatube-community/metatube-sdk-go/common/parser"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/scraper"
 )
 
 var (
@@ -46,7 +47,7 @@ func (xsl *XsList) GetActorInfoByID(id string) (info *model.ActorInfo, err error
 	return xsl.GetActorInfoByURL(fmt.Sprintf(actorURL, id))
 }
 
-func (xsl *XsList) ParseIDFromURL(rawURL string) (id string, err error) {
+func (xsl *XsList) ParseActorIDFromURL(rawURL string) (id string, err error) {
 	homepage, err := url.Parse(rawURL)
 	if err != nil {
 		return
@@ -58,7 +59,7 @@ func (xsl *XsList) ParseIDFromURL(rawURL string) (id string, err error) {
 }
 
 func (xsl *XsList) GetActorInfoByURL(rawURL string) (info *model.ActorInfo, err error) {
-	id, err := xsl.ParseIDFromURL(rawURL)
+	id, err := xsl.ParseActorIDFromURL(rawURL)
 	if err != nil {
 		return
 	}
@@ -157,7 +158,7 @@ func (xsl *XsList) SearchActor(keyword string) (results []*model.ActorSearchResu
 
 	c.OnXML(`//ul/li`, func(e *colly.XMLElement) {
 		homepage := e.Request.AbsoluteURL(e.ChildAttr(`.//h3/a`, "href"))
-		id, _ := xsl.ParseIDFromURL(homepage)
+		id, _ := xsl.ParseActorIDFromURL(homepage)
 		// Name
 		actor := e.ChildAttr(`.//h3/a`, "title")
 		if ss := strings.SplitN(actor, "-", 2); len(ss) == 2 {
@@ -188,11 +189,11 @@ func parseDebutDate(s string) dt.Date {
 	if ss := regexp.MustCompile(`^([\s\d]+)年([\s\d]+)月$`).
 		FindStringSubmatch(s); len(ss) == 3 {
 		return dt.Date(time.Date(parser.ParseInt(ss[1]), time.Month(parser.ParseInt(ss[2])),
-			1, 0, 0, 0, 0, time.UTC))
+			2, 2, 2, 2, 2, time.UTC))
 	}
 	return parser.ParseDate(s)
 }
 
 func init() {
-	provider.RegisterActorFactory(Name, New)
+	provider.Register(Name, New)
 }

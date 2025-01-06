@@ -1,15 +1,17 @@
 package fetch
 
 import (
+	"crypto/tls"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"time"
 
+	"github.com/hashicorp/go-cleanhttp"
 	"github.com/hashicorp/go-retryablehttp"
 
-	"github.com/javtube/javtube-sdk-go/common/random"
-	"github.com/javtube/javtube-sdk-go/errors"
+	"github.com/metatube-community/metatube-sdk-go/common/random"
+	"github.com/metatube-community/metatube-sdk-go/errors"
 )
 
 var DefaultFetcher = Default(&Config{RandomUserAgent: true})
@@ -29,6 +31,16 @@ type Config struct {
 
 	// Return error when status is not OK.
 	RaiseForStatus bool
+
+	// HTTP Request timeout.
+	Timeout time.Duration
+
+	// Custom HTTP Transport.
+	Transport http.RoundTripper
+
+	// Skip TLS verification. Applies only
+	// to *http.Transport based transport.
+	SkipVerify bool
 }
 
 type Fetcher struct {
@@ -61,13 +73,30 @@ func Default(cfg *Config) *Fetcher {
 	if cfg.UserAgent == "" {
 		cfg.RandomUserAgent = true
 	}
-	return New((&retryablehttp.Client{
+	c := &retryablehttp.Client{
+		HTTPClient:   cleanhttp.DefaultPooledClient(),
 		RetryWaitMin: 1 * time.Second,
 		RetryWaitMax: 3 * time.Second,
 		RetryMax:     3,
 		CheckRetry:   retryablehttp.DefaultRetryPolicy,
 		Backoff:      retryablehttp.DefaultBackoff,
-	}).StandardClient(), cfg)
+	}
+	if cfg.Timeout > time.Second {
+		c.HTTPClient.Timeout = cfg.Timeout
+	}
+	if cfg.Transport != nil {
+		c.HTTPClient.Transport = cfg.Transport
+	}
+	if cfg.SkipVerify {
+		if transport, ok := c.HTTPClient.Transport.(*http.Transport); ok {
+			if transport.TLSClientConfig == nil {
+				// init TLS config if is nil.
+				transport.TLSClientConfig = &tls.Config{}
+			}
+			transport.TLSClientConfig.InsecureSkipVerify = true
+		}
+	}
+	return New(c.StandardClient(), cfg)
 }
 
 func (f *Fetcher) Fetch(url string) (resp *http.Response, err error) {

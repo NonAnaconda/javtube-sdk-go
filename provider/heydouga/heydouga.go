@@ -3,18 +3,21 @@ package heydouga
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
 	"github.com/gocolly/colly/v2"
 	"golang.org/x/net/html"
 
-	"github.com/javtube/javtube-sdk-go/common/parser"
-	"github.com/javtube/javtube-sdk-go/model"
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/internal/scraper"
+	"github.com/metatube-community/metatube-sdk-go/common/js"
+	"github.com/metatube-community/metatube-sdk-go/common/parser"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/scraper"
 )
 
 var _ provider.MovieProvider = (*HeyDouga)(nil)
@@ -35,10 +38,17 @@ type HeyDouga struct {
 }
 
 func New() *HeyDouga {
-	return &HeyDouga{scraper.NewDefaultScraper(Name, baseURL, Priority)}
+	return &HeyDouga{
+		scraper.NewDefaultScraper(Name, baseURL, Priority, scraper.WithCookies(baseURL, []*http.Cookie{
+			// feature_group=1; over18_ppv=1; lang=ja;
+			{Name: "lang", Value: "ja"},
+			{Name: "over18_ppv", Value: "1"},
+			{Name: "feature_group", Value: "1"},
+		})),
+	}
 }
 
-func (hey *HeyDouga) NormalizeID(id string) string {
+func (hey *HeyDouga) NormalizeMovieID(id string) string {
 	if ss := regexp.MustCompile(`^(?i)(?:heydouga[-_])?(\d{4}-[a-z\d]+)$`).FindStringSubmatch(id); len(ss) == 2 {
 		return ss[1]
 	}
@@ -52,7 +62,7 @@ func (hey *HeyDouga) GetMovieInfoByID(id string) (info *model.MovieInfo, err err
 	return nil, provider.ErrInvalidID
 }
 
-func (hey *HeyDouga) ParseIDFromURL(rawURL string) (id string, err error) {
+func (hey *HeyDouga) ParseMovieIDFromURL(rawURL string) (id string, err error) {
 	homepage, err := url.Parse(rawURL)
 	if err != nil {
 		return
@@ -65,7 +75,7 @@ func (hey *HeyDouga) ParseIDFromURL(rawURL string) (id string, err error) {
 }
 
 func (hey *HeyDouga) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err error) {
-	id, err := hey.ParseIDFromURL(rawURL)
+	id, err := hey.ParseMovieIDFromURL(rawURL)
 	if err != nil {
 		return
 	}
@@ -102,9 +112,12 @@ func (hey *HeyDouga) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, er
 
 	// Cover
 	c.OnXML(`//section[@class="movie-player"]//script`, func(e *colly.XMLElement) {
-		if ss := regexp.MustCompile(`(?i)player_poster\s*=\s*'(http.+?)';`).FindStringSubmatch(e.Text); len(ss) == 2 {
-			info.CoverURL = e.Request.AbsoluteURL(ss[1])
-			info.ThumbURL = info.CoverURL
+		if ss := regexp.MustCompile(`(?i)(var\s*player_poster\s*=.+;)`).FindStringSubmatch(e.Text); len(ss) == 2 {
+			var poster string
+			if err := js.UnmarshalObject(ss[1], "player_poster", &poster); err == nil {
+				info.CoverURL = e.Request.AbsoluteURL(poster)
+				info.ThumbURL = info.CoverURL
+			}
 		}
 	})
 
@@ -124,6 +137,14 @@ func (hey *HeyDouga) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, er
 			info.Runtime = parser.ParseRuntime(e.ChildText(`.//span[2]`))
 		case "ファイル容量：", "画面サイズ：":
 			// skip, do nothing
+		}
+	})
+
+	// Previews Images
+	c.OnXML(`//*[@id="movie-gallery-images"]//a[@class="fancybox"]`, func(e *colly.XMLElement) {
+		href := e.Attr("href")
+		if image := e.Request.AbsoluteURL(href); href != "" && !slices.Contains(info.PreviewImages, image) {
+			info.PreviewImages = append(info.PreviewImages, image)
 		}
 	})
 
@@ -211,5 +232,5 @@ func (hey *HeyDouga) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, er
 }
 
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

@@ -14,10 +14,10 @@ import (
 	"github.com/gocolly/colly/v2"
 	"golang.org/x/net/html"
 
-	"github.com/javtube/javtube-sdk-go/common/parser"
-	"github.com/javtube/javtube-sdk-go/model"
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/internal/scraper"
+	"github.com/metatube-community/metatube-sdk-go/common/parser"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/scraper"
 )
 
 var _ provider.MovieProvider = (*KIN8)(nil)
@@ -41,7 +41,7 @@ func New() *KIN8 {
 	return &KIN8{scraper.NewDefaultScraper(Name, baseURL, Priority)}
 }
 
-func (k8 *KIN8) NormalizeID(id string) string {
+func (k8 *KIN8) NormalizeMovieID(id string) string {
 	if ss := regexp.MustCompile(`^(?i)(?:kin8[-_])?(\d+)$`).FindStringSubmatch(id); len(ss) == 2 {
 		return ss[1]
 	}
@@ -52,7 +52,7 @@ func (k8 *KIN8) GetMovieInfoByID(id string) (info *model.MovieInfo, err error) {
 	return k8.GetMovieInfoByURL(fmt.Sprintf(movieURL, id))
 }
 
-func (k8 *KIN8) ParseIDFromURL(rawURL string) (string, error) {
+func (k8 *KIN8) ParseMovieIDFromURL(rawURL string) (string, error) {
 	homepage, err := url.Parse(rawURL)
 	if err != nil {
 		return "", err
@@ -61,7 +61,7 @@ func (k8 *KIN8) ParseIDFromURL(rawURL string) (string, error) {
 }
 
 func (k8 *KIN8) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err error) {
-	id, err := k8.ParseIDFromURL(rawURL)
+	id, err := k8.ParseMovieIDFromURL(rawURL)
 	if err != nil {
 		return
 	}
@@ -220,5 +220,5 @@ func (k8 *KIN8) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err err
 }
 
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

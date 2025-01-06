@@ -9,10 +9,10 @@ import (
 
 	"github.com/gocolly/colly/v2"
 
-	"github.com/javtube/javtube-sdk-go/common/parser"
-	"github.com/javtube/javtube-sdk-go/model"
-	"github.com/javtube/javtube-sdk-go/provider"
-	"github.com/javtube/javtube-sdk-go/provider/internal/scraper"
+	"github.com/metatube-community/metatube-sdk-go/common/parser"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	"github.com/metatube-community/metatube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/scraper"
 )
 
 var (
@@ -47,22 +47,22 @@ func New() *AirAV {
 	}
 }
 
-func (air *AirAV) NormalizeID(id string) string { return strings.ToUpper(id) }
+func (air *AirAV) NormalizeMovieID(id string) string { return strings.ToUpper(id) }
 
 func (air *AirAV) GetMovieInfoByID(id string) (info *model.MovieInfo, err error) {
 	return air.GetMovieInfoByURL(fmt.Sprintf(movieURL, id))
 }
 
-func (air *AirAV) ParseIDFromURL(rawURL string) (string, error) {
+func (air *AirAV) ParseMovieIDFromURL(rawURL string) (string, error) {
 	homepage, err := url.Parse(rawURL)
 	if err != nil {
 		return "", err
 	}
-	return air.NormalizeID(path.Base(homepage.Path)), nil
+	return air.NormalizeMovieID(path.Base(homepage.Path)), nil
 }
 
 func (air *AirAV) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err error) {
-	id, err := air.ParseIDFromURL(rawURL)
+	id, err := air.ParseMovieIDFromURL(rawURL)
 	if err != nil {
 		return
 	}
@@ -174,7 +174,7 @@ func (air *AirAV) GetMovieInfoByURL(rawURL string) (info *model.MovieInfo, err e
 	return
 }
 
-func (air *AirAV) NormalizeKeyword(keyword string) string {
+func (air *AirAV) NormalizeMovieKeyword(keyword string) string {
 	// Disable AIRAV due to its bad performance.
 	//
 	//if ss := regexp.MustCompile(`^(?i)FC2-.*?(\d+)$`).FindStringSubmatch(keyword); len(ss) == 2 {
@@ -229,5 +229,5 @@ func ParseNumber(s string) string {
 }
 
 func init() {
-	provider.RegisterMovieFactory(Name, New)
+	provider.Register(Name, New)
 }

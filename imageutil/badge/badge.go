@@ -7,8 +7,8 @@ import (
 
 	"github.com/jellydator/ttlcache/v3"
 
-	"github.com/javtube/javtube-sdk-go/common/fetch"
-	"github.com/javtube/javtube-sdk-go/imageutil"
+	"github.com/metatube-community/metatube-sdk-go/common/fetch"
+	"github.com/metatube-community/metatube-sdk-go/imageutil"
 )
 
 var (
@@ -35,7 +35,7 @@ func Badge(src image.Image, badge string) (image.Image, error) {
 		}
 		defer resp.Body.Close()
 		// decode badge image.
-		img, _, err = image.Decode(resp.Body)
+		img, _, err = imageutil.Decode(resp.Body)
 		if err != nil {
 			return nil, fmt.Errorf("decode badge: %w", err)
 		}

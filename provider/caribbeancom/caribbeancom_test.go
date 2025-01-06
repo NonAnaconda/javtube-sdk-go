@@ -1,22 +1,21 @@
 package caribbeancom
 
 import (
-	"encoding/json"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/metatube-community/metatube-sdk-go/provider/internal/testkit"
 )
 
-func TestCaribbean_GetMovieInfoByID(t *testing.T) {
-	provider := New()
-	for _, item := range []string{
+func TestCaribbeancom_GetMovieInfoByID(t *testing.T) {
+	testkit.Test(t, New, []string{
 		"050422-001",
 		"031222-001",
 		"061014-618",
-	} {
-		info, err := provider.GetMovieInfoByID(item)
-		data, _ := json.MarshalIndent(info, "", "\t")
-		assert.True(t, assert.NoError(t, err) && assert.True(t, info.Valid()))
-		t.Logf("%s", data)
-	}
+	})
+}
+
+func TestCaribbeancom_GetMovieReviewsByID(t *testing.T) {
+	testkit.Test(t, New, []string{
+		"050422-001",
+	})
 }

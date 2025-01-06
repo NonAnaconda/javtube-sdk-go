@@ -2,13 +2,15 @@ package route
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/javtube/javtube-sdk-go/engine"
-	"github.com/javtube/javtube-sdk-go/model"
-	javtube "github.com/javtube/javtube-sdk-go/provider"
+	"github.com/metatube-community/metatube-sdk-go/common/parser"
+	"github.com/metatube-community/metatube-sdk-go/engine"
+	"github.com/metatube-community/metatube-sdk-go/model"
+	mt "github.com/metatube-community/metatube-sdk-go/provider"
 )
 
 func redirect(app *engine.Engine) gin.HandlerFunc {
@@ -17,26 +19,31 @@ func redirect(app *engine.Engine) gin.HandlerFunc {
 		queryKey  = "redirect"
 	)
 	return func(c *gin.Context) {
-		if url := c.Query(queryKey); url != "" {
-			var (
-				provider string
-				id       string
-			)
-			if ss := strings.Split(url, separator); len(ss) > 1 {
-				provider, id = ss[0], ss[1]
+		if redir := c.Query(queryKey); redir != "" {
+			provider, id, found := strings.Cut(
+				parser.ParseProviderID(redir),
+				separator)
+			if !found || id == "" {
+				abortWithStatusMessage(c, http.StatusBadRequest, "invalid provider id")
+				return
 			}
 
 			var (
 				info any
 				err  error
 			)
+			if id, err = url.QueryUnescape(id); err != nil {
+				abortWithError(c, err)
+				return
+			}
+
 			switch {
 			case app.IsActorProvider(provider):
 				info, err = app.GetActorInfoByProviderID(provider, id, true)
 			case app.IsMovieProvider(provider):
 				info, err = app.GetMovieInfoByProviderID(provider, id, true)
 			default:
-				abortWithError(c, javtube.ErrProviderNotFound)
+				abortWithError(c, mt.ErrProviderNotFound)
 				return
 			}
 			if err != nil {
